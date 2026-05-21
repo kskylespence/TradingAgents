@@ -13,7 +13,12 @@ WORKDIR /fe
 COPY web/frontend/package*.json ./
 RUN npm ci
 COPY web/frontend ./
-RUN npm run build                          # outputs to /fe/dist
+# Verify the build actually produced an index.html. BuildKit has cached
+# a /fe/dist-less layer in past Coolify deploys when an earlier
+# `npm run build` exited non-zero; the post-build `test` step makes
+# that failure loud rather than silently passing the cache forward
+# into the COPY --from=fe step.
+RUN npm run build && test -s /fe/dist/index.html
 
 # ---- python runtime ----
 FROM python:3.12-slim AS be
