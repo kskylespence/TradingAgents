@@ -188,11 +188,33 @@ Query keys used across the app:
 | `["api-keys"]` | (Settings page) | `PUT/DELETE /api/settings/api-keys/:env` |
 | `["run", runId]` | `useRun.ts` | Auto: terminal SSE event triggers `runQuery.refetch()` |
 | `["history", filters]` | `useHistory.ts` | After cancel/resume |
+| `["health"]` | `useHealth.ts` | Auto-poll every 30 s (`refetchInterval: 30_000`) |
 
 `useRun` refetches `["run", runId]` automatically when the reducer
 sees a terminal event (`run_completed`, `run_failed`, `run_cancelled`)
 so persisted fields (`rating`, `finished_at`, `stats`, `report_dir`)
 line up with what the live stream just told the user.
+
+`useHealth` polls `/api/health` at 30-second intervals with
+`retry: 1` and no refetch-on-window-focus. It is consumed today only
+by `NewRun.tsx` to drive the `<OllamaUpstreamAlert>` warning when
+the user has Ollama selected but the backend probe reports `down`.
+The alert suppresses on `unknown` (cold-start; no probe yet) and on
+`ok` (including `ok with model_count: 0`) to avoid alert fatigue.
+
+### Surfacing a pure-presentational warning
+
+When a small piece of UI is just "show / hide based on a few props",
+extract it into a component under `src/components/` and unit-test it
+directly rather than mounting the consuming route. `NewRun.tsx`'s
+inline Ollama-down alert started as a JSX block in the route and was
+later extracted to `<OllamaUpstreamAlert>` because testing the route
+end-to-end was prohibitively expensive (NewRun has 10+ `useEffect`s
+and three Radix Select trees that combine to hang jsdom). The
+extracted-component approach: `OllamaUpstreamAlert.tsx` is one
+function, takes `{provider, health}`, returns `null` or a `<div
+role="alert">`. Its test file mounts just the component with various
+prop shapes — 3 s and 7 assertions vs. a multi-minute hang.
 
 ## Form pre-fill via user defaults
 

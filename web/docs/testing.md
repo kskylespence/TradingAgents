@@ -184,6 +184,55 @@ lazy lock too.
 Anywhere you write a new `_get_lock()` helper, give it a matching
 `reset_for_tests()` that also nulls the lock.
 
+### Resetting service caches between tests
+
+The `ollama_models` service caches both a model list (`_cache`) and a
+per-attempt outcome log (`_last_attempt`); both need to be cleared
+between tests so probe-status assertions don't bleed across. The
+backend conftest does this for you via an autouse fixture:
+
+```python
+# Already in web/backend/tests/conftest.py — no per-file boilerplate needed
+@pytest.fixture(autouse=True)
+def _reset_ollama_cache():
+    from app.services import ollama_models
+    ollama_models._reset_for_tests()
+    yield
+    ollama_models._reset_for_tests()
+```
+
+`_reset_for_tests()` nulls the lock AND clears both dicts. If you add
+a new service module with its own caches, mirror the pattern: expose
+a `_reset_for_tests()`, register it in conftest as autouse.
+
+## Mocking outbound HTTP — `install_fake_httpx_ollama`
+
+When a router or service test exercises a path that fans out to
+`ollama_models.list_ollama_models()`, monkeypatch `httpx.AsyncClient`
+via the shared helper in conftest:
+
+```python
+from .conftest import install_fake_httpx_ollama
+
+def test_routerwithollama(monkeypatch):
+    record = install_fake_httpx_ollama(
+        monkeypatch,
+        ids=["gpt-oss:120b", "qwen3-coder:480b"],
+    )
+    # ... hit /api/catalog/models?provider=ollama (or /api/health, /api/runs) ...
+    assert record["calls"] == 1
+    assert record["last_url"].endswith("/models")
+    assert "Bearer" in record["last_headers"]["Authorization"]
+```
+
+Use the shared helper for router-level tests. The service-level test
+files (`test_ollama_models_service.py`,
+`test_ollama_models_failure_keeps_last_good.py`) keep their own
+ad-hoc fake clients because they need full control of the JSON
+payload to test malformed-item edge cases and multi-step
+success-then-failure scripts — that's a deliberate exception, not the
+default.
+
 ## Vitest (frontend unit)
 
 Layout: every test lives in `src/__tests__/` and ends in `.test.ts` or
@@ -244,6 +293,36 @@ class, stubs it onto `globalThis` via `vi.stubGlobal("EventSource",
 FakeEventSource)`, and drives lifecycle by hand (`emitOpen`,
 `emitJsonMessage`, `emitErrorClosed`). Reuse this pattern for any new
 SSE-related hook test.
+
+### Avoid mounting heavyweight routes — extract presentational components
+
+Some routes (`NewRun.tsx` is the canonical example) combine 10+
+`useEffect`s with Radix Select trees that interact badly with jsdom
+under vitest — render hangs are common. The reliable pattern is to
+extract any small piece of UI whose behavior depends only on props
+into its own component under `src/components/` and test that
+directly:
+
+```tsx
+// src/components/OllamaUpstreamAlert.tsx — pure props in, JSX out
+export function OllamaUpstreamAlert({ provider, health }: Props) {
+  const visible = provider === "ollama" && health?.status === "down";
+  if (!visible) return null;
+  return <div role="alert">…</div>;
+}
+```
+
+```tsx
+// src/__tests__/NewRun.ollamaAlert.test.tsx — 3-second suite of 7 assertions
+it("renders the alert when provider=ollama and status=down", () => {
+  render(<OllamaUpstreamAlert provider="ollama" health={_h("down")} />);
+  expect(screen.getByRole("alert").textContent).toMatch(/unreachable/i);
+});
+```
+
+vs. the full-route test that would mock 6 hooks and still hang on
+mount. If you find yourself mocking five or more hooks just to test
+one piece of conditional JSX, extract.
 
 ## Playwright (e2e)
 

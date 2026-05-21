@@ -42,6 +42,9 @@ silently runs with a publicly-known dev string.
 | `COOLIFY_FQDN` | unset | Auto-injected by Coolify. Used for CSP construction. |
 | `COOLIFY_URL` | unset | Auto-injected by Coolify. Used for CSP construction. |
 | `FAKE_LLM` | unset | When `=1`, `run_service._run_engine` short-circuits to a scripted simulator (~0.3 s, always returns Buy). Dev and test only — never set in prod. |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Where the catalog's live-discovery service points when listing Ollama models, and where the engine sends chat completions. Set to `https://ollama.com/v1` for Ollama Cloud. **Setting this env var is what makes Ollama appear in the provider dropdown** — `tradingagents.providers.available_providers()` treats unset = "not configured". |
+| `OLLAMA_API_KEY` | unset | Bearer token forwarded as `Authorization: Bearer <key>` on every Ollama request. Required for Ollama Cloud; unset (or any value) is fine for a local `ollama serve` that doesn't auth. |
+| `TRADINGAGENTS_LLM_PROVIDER` | unset | Provider key (e.g. `ollama`, `openai`). Read by `/api/health` to decide whether to include the `ollama` upstream-probe block in the response — set this when deploying so the health endpoint surfaces upstream reachability honestly. Used as a default by the engine path too. |
 
 ### Per-provider API keys (optional)
 
@@ -103,9 +106,16 @@ unaffected — only the encrypted credential table is dead weight.
 ```json
 {
   "status": "ok" | "degraded",
+  "version": "0.2.5+hf.2",
   "db":     "ok" | "down",
   "disk_free_mb": 18234,
-  "active_run_id": null
+  "active_run_id": null,
+  "ollama": {                             // present iff TRADINGAGENTS_LLM_PROVIDER=ollama
+    "status": "ok" | "down" | "unknown",
+    "url": "https://ollama.com/v1",
+    "model_count": 39,                    // int on "ok"; null on "down"/"unknown"
+    "error": null                          // exception repr on "down"
+  }
 }
 ```
 
@@ -113,6 +123,23 @@ unaffected — only the encrypted credential table is dead weight.
 |---|---|---|---|
 | `ok` | `ok` | 200 | DB reachable on a trivial `SELECT 1`. Normal operation. |
 | `degraded` | `down` | 200 | DB unreachable. The app keeps serving static assets and login screen so a human can see the failure. |
+
+The optional `ollama` block reports upstream LLM reachability when
+Ollama is the active provider. `ollama.status` distinguishes:
+
+- `"ok"` — last probe succeeded; `model_count` is the real count.
+  Note that `model_count: 0` is still `"ok"` — an account legitimately
+  provisioned with zero models is not "down".
+- `"down"` — last probe failed (4xx / 5xx / timeout / connect error).
+  `error` carries the repr for triage.
+- `"unknown"` — no probe attempted yet in this process. Practically
+  only seen at very cold start.
+
+**The outer `status` is NOT flipped to `"degraded"` when Ollama is
+down.** Coolify treats non-2xx (and now `degraded`) as restart
+signals; restarting won't fix the upstream. The body advertises the
+failure for humans / dashboards while the container stays up. Same
+invariant as `db: "down"`.
 
 ### Why `degraded` is still HTTP 200
 
@@ -236,6 +263,8 @@ the runner's own structured logs the dominant signal.
 | Provider call returned 401 / decrypt failed | `grep run_service.api_key_decrypt_failed` — usually means `FERNET_KEY` was rotated or replaced without re-encrypting the `api_keys` rows. Re-enter the key via Settings. |
 | Run failed during engine execution | `grep run_service.engine_failed` (carries `run_id` in `extra`); the full traceback is in the `exc` field. |
 | Background prune task crashed | `grep disk_pruner.tick_failed` for the traceback. The loop survives — the next tick still runs. |
+| Ollama model dropdown is empty or out of date | `grep ollama_models.fetch_failed` for the underlying error. The service never raises; it returns the last-good cached list on failure, or `[]` on cold start. Check the `url` and `error` fields in the log line. Most often: `OLLAMA_BASE_URL` is wrong or `OLLAMA_API_KEY` doesn't match the endpoint. `curl -H "Authorization: Bearer $OLLAMA_API_KEY" $OLLAMA_BASE_URL/models` from the container reproduces in isolation. |
+| Run failed with `model "X" not found` on Ollama | The picked model isn't in the live `/v1/models` for the configured endpoint. Pre-PR-0.2.5+hf.2 this was caused by the catalog listing local-Ollama tags against an Ollama Cloud endpoint; post-PR it's blocked at `POST /api/runs` pre-flight. If you see it now, the user has a stale browser tab — `/api/settings/defaults` auto-heal will clear it on next form load. |
 
 ## Backup recommendations
 

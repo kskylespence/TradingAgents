@@ -40,6 +40,44 @@ can handle them).
 | `/api/health` | `app/routers/health.py` (public) |
 | `/api/announcements` | `app/routers/announcements.py` |
 
+### Catalog and validation invariants (added in 0.2.5+hf.2)
+
+The catalog and run-submission paths enforce a four-layer defense to
+keep the user from picking a provider/model that can't physically work
+in the current deployment. New developers touching these endpoints
+should know the invariants:
+
+1. **`GET /api/catalog/providers` is filtered by env-credential
+   presence** via `tradingagents.providers.available_providers()`. A
+   provider with no env var set never appears in the dropdown. Ollama
+   special case: present iff `OLLAMA_BASE_URL` is set. Azure: present
+   iff both `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` are set.
+2. **`GET /api/catalog/models?provider=ollama` is live-discovered**
+   via `GET {OLLAMA_BASE_URL}/models` with a 5-minute TTL cache
+   (`app/services/ollama_models.py`). Both local `ollama serve` and
+   Ollama Cloud implement the OpenAI-compatible list endpoint, so the
+   same call works for both. Static providers (openai, anthropic, etc.)
+   still come from `tradingagents/llm_clients/model_catalog.py`.
+3. **`GET /api/settings/defaults` auto-heals** stale saved model names
+   by returning `null` when the saved `quick_think_llm` / `deep_think_llm`
+   is not in the live catalog for the saved provider. The DB row is
+   NOT mutated; the next PUT overwrites cleanly.
+4. **`PUT /api/settings/defaults` validates** provider + model against
+   the live catalog and returns 400 with the available list. `null` is
+   accepted (that's how auto-heal stores its "I don't know" state).
+5. **`POST /api/runs` validates** provider + model pre-flight before
+   the engine launches, so stale tabs / curl clients bypassing the
+   form get a fast descriptive 400 instead of a 10-second-late 500
+   from inside the engine.
+
+Providers whose static catalog includes a `"custom"` entry (deepseek,
+openrouter, azure, etc.) get a synthetic `{id: "__custom__",
+allows_custom: true}` terminal entry in `GET /api/catalog/models` —
+the frontend swaps the dropdown for a text input when the user picks
+it. **Ollama deliberately does NOT get a `__custom__` entry**: live
+discovery is canonical, so accepting an arbitrary typed ID would just
+reproduce the 404s that motivated this whole change.
+
 ## Auth flow
 
 Cookie-based, single-user. Both cookies are set by `POST /api/auth/login`
@@ -316,6 +354,9 @@ FastAPI's default: `{"detail": "<message>"}`. Common cases:
 | 409 | `Cannot resume run in status '<status>'` / `Run was not checkpointed; cannot resume` | resume preconditions failed |
 | 400 | `Invalid cursor: <reason>` | malformed `cursor` query on `GET /api/history` |
 | 400 | `Unknown provider env-var: '<env>'` | settings PUT/DELETE on an env name not in `PROVIDER_API_KEY_ENV` |
+| 400 | `Model '<name>' is not available on provider '<key>'. Available: <list>` | `POST /api/runs` pre-flight or `PUT /api/settings/defaults` validation rejected a model that's not in the live catalog for that provider. The error inlines the available list so the caller knows what to pick. |
+| 400 | `Provider '<key>' is not configured on this deployment. Available providers: <list>` | `POST /api/runs` was called with a provider whose credentials are not present in env. Adds defense-in-depth on top of the frontend's env-filtered provider dropdown. |
+| 400 | `Cannot save <field>=<value> without an llm_provider. Include llm_provider in the PUT body.` | `PUT /api/settings/defaults` tried to set `quick_think_llm` / `deep_think_llm` without a provider to validate it against. |
 
 FastAPI's own validation errors (422) follow Pydantic's
 `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}` shape and
@@ -344,7 +385,7 @@ are documented under each endpoint in `/api/docs`.
 | `DELETE` | `/api/settings/api-keys/{env}` | JWT | required | `204` |
 | `GET` | `/api/settings/defaults` | JWT | n/a | `UserDefaults` |
 | `PUT` | `/api/settings/defaults` | JWT | required | `UserDefaults` (partial merge) |
-| `GET` | `/api/health` | none | n/a | `{status, db, disk_free_mb, active_run_id}`, always HTTP 200 |
+| `GET` | `/api/health` | none | n/a | `HealthResponse` (`{status, version, db, disk_free_mb, active_run_id, ollama?}`), always HTTP 200 |
 | `GET` | `/api/announcements/` | JWT | n/a | `Announcement[]` (cached proxy) |
 
 `/api/health` returns `status: "ok"` when everything is healthy and
@@ -352,6 +393,36 @@ are documented under each endpoint in `/api/docs`.
 HTTP code is always 200 by design — Coolify treats non-2xx as
 "restart the container," which is the wrong reaction to a transient DB
 blip. See `web/docs/operations.md` for the rationale.
+
+When `TRADINGAGENTS_LLM_PROVIDER == "ollama"` the response includes an
+`ollama` block with the upstream probe state:
+
+```json
+"ollama": {
+  "status": "ok" | "down" | "unknown",
+  "url": "https://ollama.com/v1",
+  "model_count": 39,        // int when status="ok"; null on "down"/"unknown"
+  "error": null              // repr() of the underlying exception on "down"
+}
+```
+
+`status` distinguishes:
+- `"ok"` — last upstream probe succeeded. `model_count` may legitimately
+  be `0` (an account with no models provisioned is still "ok").
+- `"down"` — last probe failed (4xx / 5xx / timeout). `error` carries
+  the underlying exception repr for ops triage. The OUTER `status`
+  stays `"ok"` — same Coolify invariant as DB-down — so an upstream LLM
+  outage does NOT restart the container.
+- `"unknown"` — no probe attempted yet in this process. Rare in
+  practice: the probe is triggered on every `/api/health` hit, so the
+  only way to surface `unknown` is reading the cached state during the
+  narrow window before the first fetch records its outcome.
+
+The probe shares the catalog endpoint's TTL cache (300 s), so health
+checks add no upstream load beyond what `/api/catalog/models` already
+pays. Per-attempt status is tracked separately from the cache in
+`app/services/ollama_models.py:_last_attempt` — that's what lets
+`"ok with 0 models"` be distinguished from `"down with cold cache"`.
 
 ## See also
 

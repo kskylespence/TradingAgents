@@ -199,7 +199,43 @@ dead by the time you await the lock, and you get
 `RuntimeError: <Lock> is bound to a different event loop`.
 
 References: `app/services/event_bus.py:_get_lock()`,
-`app/services/rate_limit.py:LoginRateLimiter._get_lock()`.
+`app/services/rate_limit.py:LoginRateLimiter._get_lock()`,
+`app/services/ollama_models.py:_get_lock()`.
+
+### Mocking outbound HTTP — `install_fake_httpx_ollama` fixture
+
+When a service makes outbound `httpx` calls (today: only
+`ollama_models.py`), tests should monkeypatch `httpx.AsyncClient` rather
+than spin up a real server. There's a shared helper in
+`web/backend/tests/conftest.py`:
+
+```python
+from .conftest import install_fake_httpx_ollama
+
+def test_something(monkeypatch):
+    record = install_fake_httpx_ollama(
+        monkeypatch,
+        ids=["gpt-oss:120b", "qwen3-coder:480b"],
+        # OR raise_exc=httpx.ConnectError("boom") for failure-mode tests
+        # OR status=401 to simulate auth failure
+    )
+    # ... exercise the catalog/health/runs endpoint ...
+    assert record["calls"] == 1
+    assert "Bearer" in record["last_headers"]["Authorization"]
+```
+
+`record` is a dict tracking `{"calls", "last_url", "last_headers"}` so
+tests can assert that the right URL and auth headers were sent.
+Combined with the autouse `_reset_ollama_cache` fixture in conftest
+(which clears `_cache`, `_lock`, and `_last_attempt` between tests),
+every test starts from a fresh upstream state.
+
+The two service-level test files
+(`test_ollama_models_service.py` and `test_ollama_models_failure_keeps_last_good.py`)
+keep their own local helper because they need full control of the
+response JSON to test malformed-item edge cases and multi-step
+success-then-failure scripts. Router-level tests should always use
+the shared helper.
 
 ## The soft-auth pattern
 
@@ -252,7 +288,10 @@ re-derive.
 | Need | Reuse from |
 |---|---|
 | Provider list (display name, default base URL, regions) | `tradingagents.providers.PROVIDERS` |
-| Per-provider model lists | `tradingagents.llm_clients.model_catalog.MODEL_OPTIONS` |
+| Provider list filtered to "credentials present in env" | `tradingagents.providers.available_providers()` |
+| Per-provider model lists (static, non-Ollama) | `tradingagents.llm_clients.model_catalog.MODEL_OPTIONS` |
+| Live Ollama / Ollama Cloud model discovery (TTL-cached, never-raises) | `app.services.ollama_models.list_ollama_models()` |
+| Most-recent Ollama upstream probe outcome (`ok` / `down` / `unknown`) | `app.services.ollama_models.last_probe_status()` |
 | Provider → env-var name mapping | `tradingagents.llm_clients.api_key_env.PROVIDER_API_KEY_ENV` |
 | Asset-type detection | `tradingagents.asset_types.detect_asset_type(ticker)` |
 | Analyst filter for asset type | `tradingagents.asset_types.filter_analysts_for_asset_type` |

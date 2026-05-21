@@ -83,6 +83,15 @@ dev server runs separately on `:5173` and proxies `/api` to `:8000`.
 
 Drop a file in the right place and it wires itself.
 
+### Notable service modules
+
+- `services/event_bus.py` — per-run SSE pub/sub.
+- `services/run_service.py` — the full run lifecycle (lock, env-inject, engine, terminal-state writeback).
+- `services/rate_limit.py` — login lockout, persisted to `login_attempts`.
+- `services/disk_pruner.py` — background retention sweep for reports and checkpoints.
+- `services/crash_recovery.py` — on-boot pass that flips orphan `running` runs to `interrupted`.
+- `services/ollama_models.py` — live discovery of Ollama / Ollama Cloud models via `GET {OLLAMA_BASE_URL}/models`, with TTL cache, never-raises contract, and a separate `_last_attempt` tracker that lets `/api/health` distinguish "ok-with-zero-models" from "down-with-cold-cache". Used by `catalog.py:list_models()` and by the health router's `_ollama_probe()`.
+
 ## Run lifecycle walkthrough
 
 What happens between the user clicking **Submit** and the
