@@ -55,6 +55,34 @@ Replace `your-password` with the password you want to use to log in to the UI.
 The output starts with `$2b$12$...` — that whole string is the value of
 `ADMIN_PASSWORD_HASH`.
 
+> **Coolify-specific gotcha — the `$`-mangling trap.** Coolify silently
+> interpolates `$<name>` references inside env-var values *regardless* of
+> the `is_literal` / `is_multiline` flags exposed by its API and UI.
+> bcrypt hashes always contain three `$` characters (`$2b$<cost>$<salt
+> +digest>`), so the third segment gets dropped to the empty string and
+> your container receives a 45-46-char "hash" that bcrypt cannot verify
+> against any password.
+>
+> If you observe `Got length 46` in the deploy logs' pydantic
+> ValidationError, you've hit this trap. The fix is to set
+> `ADMIN_PASSWORD_HASH_B64` instead — the base64 of the hash, which has
+> no `$` characters and round-trips cleanly:
+>
+> ```bash
+> python -c "from passlib.hash import bcrypt, sys; import base64; \
+>   h = bcrypt.using(rounds=12).hash('your-password'); \
+>   print('ADMIN_PASSWORD_HASH_B64=' + base64.b64encode(h.encode()).decode())"
+> ```
+>
+> The backend's config validator decodes the b64 form into
+> `admin_password_hash` at boot. Set **either** `ADMIN_PASSWORD_HASH`
+> **or** `ADMIN_PASSWORD_HASH_B64` (not both — the direct field wins if
+> populated). On Coolify specifically, prefer the `_B64` form. The same
+> trap applies to any future env value containing `$` followed by
+> alphabetic chars; `FERNET_KEY` and `JWT_SECRET` aren't affected
+> because they're hex / url-safe-base64 with no leading-letter dollar
+> references.
+
 ### JWT signing key
 
 ```bash
@@ -129,7 +157,8 @@ it only into the running container.
 | Name                  | Required | Runtime-only | Example / source                                                                 |
 |-----------------------|----------|--------------|----------------------------------------------------------------------------------|
 | `ADMIN_USERNAME`      | yes      | yes          | `admin`                                                                          |
-| `ADMIN_PASSWORD_HASH` | yes      | yes          | output of the bcrypt command (Step 1)                                            |
+| `ADMIN_PASSWORD_HASH` | yes¹     | yes          | output of the bcrypt command (Step 1) — **see `$`-mangling note**                |
+| `ADMIN_PASSWORD_HASH_B64` | yes¹ | yes          | base64 of the bcrypt hash; **required on Coolify** (the `$`-mangling fix)       |
 | `JWT_SECRET`          | yes      | yes          | output of `openssl rand -hex 32` (Step 1)                                        |
 | `JWT_TTL_SECONDS`     | no       | no           | `604800` (7 days; default if unset)                                              |
 | `FERNET_KEY`          | yes      | yes          | output of the Fernet command (Step 1)                                            |
@@ -151,6 +180,10 @@ it only into the running container.
 | `OPENROUTER_API_KEY`  | optional | yes          | OpenRouter                                                                       |
 | `TOGETHER_API_KEY`    | optional | yes          | Together AI                                                                      |
 | `XAI_API_KEY`         | optional | yes          | xAI Grok                                                                         |
+
+¹ Exactly one of `ADMIN_PASSWORD_HASH` / `ADMIN_PASSWORD_HASH_B64` is
+required. The b64 form is the workaround for Coolify's `$`-interpolation
+bug documented in Step 1. The direct field wins if both are set.
 
 The eleven provider key variables are optional at deploy time — any not set
 here can be added later through the **Settings → API Keys** page in the UI,
@@ -402,9 +435,41 @@ Typical causes:
   `ADMIN_PASSWORD_HASH` (≥ 60 chars — a bcrypt hash is always 60).
   The error message names the offending field; regenerate from Step 1
   and redeploy.
+- **`Got length 46` (or anything < 60) on `admin_password_hash`** — you
+  set `ADMIN_PASSWORD_HASH` directly on Coolify and Coolify ate the
+  `$<chars>` segments. Switch to `ADMIN_PASSWORD_HASH_B64` (Step 1) and
+  delete the broken `ADMIN_PASSWORD_HASH` env var entirely.
 - Bad `FERNET_KEY` content — must be 44 url-safe base64 chars produced
   by `Fernet.generate_key()`. A 44-char string of the wrong format
   passes length validation but fails when the app first tries to
   encrypt/decrypt (`FernetNotConfiguredError`).
 - Wrong `DATABASE_URL` scheme — must be `postgresql+asyncpg://`, not bare
   `postgresql://`.
+
+### Login returns 401 on the correct password (no rate-limit message)
+
+If you're certain you're typing the right plaintext password and `/api/health`
+reports `db: ok`, the most likely cause is that the bcrypt hash in
+`os.environ` is corrupted — either by the `$`-mangling trap (see Step 1)
+or by a stale duplicate `ADMIN_PASSWORD_HASH` entry overriding the b64
+fallback. Diagnose from the Coolify terminal or SSH:
+
+```bash
+CTR=$(docker ps --filter "name=yrft8wjf" --format "{{.Names}}" | head -1)  # adjust UUID prefix
+docker exec "$CTR" python -c "
+import os, base64
+from passlib.hash import bcrypt
+h  = os.environ.get('ADMIN_PASSWORD_HASH', '')
+b  = os.environ.get('ADMIN_PASSWORD_HASH_B64', '')
+print('len(HASH)    =', len(h))
+print('len(HASH_B64)=', len(b))
+if b and not h:
+    h = base64.b64decode(b).decode()
+print('verify:', bcrypt.verify('your-plaintext-here', h) if len(h) >= 60 else 'hash too short')"
+```
+
+A `len(HASH)` value of 45–46 means Coolify mangled it. Delete the
+`ADMIN_PASSWORD_HASH` entry from the Coolify UI (leaving
+`ADMIN_PASSWORD_HASH_B64` in place) and **deploy** (not Restart — a
+Coolify Restart reuses the container's existing env; only a Deploy spawns
+a fresh container with the updated env).

@@ -16,7 +16,32 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **`ADMIN_PASSWORD_HASH_B64` env-var fallback.** Coolify (and likely
+  other PaaS env-var stores) silently interpolate `$<name>` references
+  inside values *regardless* of their "literal" / "multiline" flags.
+  bcrypt hashes always contain three `$` characters
+  (`$2b$<cost>$<salt+digest>`), so each `$<chars>` segment is dropped to
+  empty and the container receives a 45–46-char truncated hash that
+  bcrypt cannot verify against any password. The new
+  `admin_password_hash_b64` setting in `web/backend/app/config.py`
+  accepts the base64 of the bcrypt hash (base64 has no `$` chars to
+  interpolate) and a `@model_validator(mode="after")` decodes it into
+  the canonical `admin_password_hash` at startup. The deploy still
+  fails loudly via `min_length=60` if neither form is set or both
+  decode to <60 chars. New tests:
+  `test_settings_accepts_admin_password_hash_b64`,
+  `test_settings_rejects_malformed_admin_password_hash_b64`.
+
 ### Changed
+
+- **`bcrypt<4.0` pin.** passlib 1.7.4 (still its last released version)
+  reads `bcrypt.__about__.__version__` to choose its backend. That
+  attribute was removed in bcrypt 4.0, so every `bcrypt.verify()`
+  emits `(trapped) error reading bcrypt version` and on some hosts the
+  fallback path silently fails verification. Pinning to the last 3.x
+  release restores passlib's fast path and removes the warning. Drop
+  the pin when passlib ships a release that drops the version check
+  (track [passlib#190](https://foss.heptapod.net/python-libs/passlib/-/issues/190)).
 
 - **Dropped the bespoke `_is_https()` / `is_secure_request()` helpers.**
   Replaced with `request.url.scheme == "https"`, which Starlette's
@@ -27,6 +52,38 @@ for the per-deploy cut workflow.
   proxy whitelist.
 
 ### Fixed
+
+- **Alembic migration `0002` adds the missing `login_attempts.id` column.**
+  The 0001 migration omitted any primary key from `login_attempts` (the
+  table is queried by `(ip, attempted_at)`, so a PK isn't needed for the
+  hot path), but the ORM in `app/models.py` declares `id` as the
+  primary key — meaning SQLAlchemy emits `INSERT ... RETURNING id` on
+  every rate-limit record. On Postgres this 500'd every login attempt
+  (`UndefinedColumnError: column login_attempts.id does not exist`).
+  Test suites missed it because `tests/conftest.py` uses
+  `Base.metadata.create_all` (which generates schema from the ORM, not
+  from migrations), so the production-only migration-vs-ORM drift was
+  invisible. The 0002 migration drops and recreates the table — losing
+  a few rate-limit rows is safe because the limiter's in-memory state
+  is also persisted to the same table.
+- **Dockerfile `COPY --from=fe` now sources from where vite actually
+  writes.** `web/frontend/vite.config.ts:25` sets `outDir` to
+  `path.resolve(__dirname, "../backend/app/static")` — convenient for
+  local dev (the build lands directly in FastAPI's static dir without a
+  copy step) but inside the Docker `fe` stage that path resolves to
+  `/backend/app/static`, not the conventional `/fe/dist`. The Dockerfile
+  now copies from the correct location and adds a `test -s
+  /backend/app/static/index.html` assertion so a future regression
+  (e.g. a CACHED-but-empty BuildKit layer) fails loudly at build time
+  instead of producing an image with no SPA assets.
+- **`web/frontend/src/lib/assetType.ts` is now tracked.** The repo-root
+  `.gitignore` had a bare `lib/` pattern (from the stock Python
+  template) that recursively matched `web/frontend/src/lib/`. The
+  earlier sibling files (`api.ts`, `sse.ts`, etc.) were already tracked
+  before that rule landed; `assetType.ts` added later was silently
+  ignored, breaking the frontend build on every fresh clone. The
+  Python-packaging patterns in `.gitignore` (`build/`, `dist/`, `lib/`,
+  etc.) are now scoped to repo root with leading slashes.
 
 ### Removed
 
@@ -72,6 +129,16 @@ for the per-deploy cut workflow.
   radius of any code-execution attack against the running process —
   previously a successful exploit landed as root with full write access
   to the mounted volume.
+
+### Operations
+
+- **`DEPLOY.md` documents the Coolify `$`-mangling trap end-to-end.**
+  New "Coolify-specific gotcha" callout in Step 1, the env-var table
+  now lists `ADMIN_PASSWORD_HASH` and `ADMIN_PASSWORD_HASH_B64` as
+  alternatives (with footnote ¹), and Troubleshooting adds a "Login
+  returns 401 on the correct password" section with a copy-paste
+  diagnostic that exec's into the container to dump
+  `os.environ['ADMIN_PASSWORD_HASH']` and run a live bcrypt verify.
 
 ## [0.2.5+hf.1] — 2026-05-21
 
