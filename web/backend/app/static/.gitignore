@@ -1,0 +1,7 @@
+# The React build output is copied here at Docker image-build time
+# (see Dockerfile: COPY --from=fe /fe/dist /app/web/backend/app/static).
+# Locally, nothing in this directory is checked in except this .gitignore
+# and a .gitkeep (placed by the frontend agent).
+*
+!.gitignore
+!.gitkeep
