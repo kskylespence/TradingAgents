@@ -221,3 +221,19 @@ __marimo__/
 # Claude Code local state (worktrees, settings.local.json, plans, etc.)
 .claude/
 
+# AI-session conventions — local-only. This repo is a public fork; we do
+# not want the dense internal-conventions files Claude reads to be part of
+# the public surface area. The existing versions remain in git history
+# (already pushed before this rule landed); these patterns stop FUTURE
+# changes from being committed.
+CLAUDE.md
+
+# Preventive: filenames that should never reach a public repo. Security
+# reviews, threat models, and red-team output describe current attack
+# surface and must stay local.
+THREAT-MODEL*.md
+threat-model*.md
+SECURITY-REVIEW*.md
+security-review*.md
+*.security.md
+.security/

@@ -30,6 +30,17 @@ for the per-deploy cut workflow.
 
 ### Removed
 
+- **The three `CLAUDE.md` files dropped from public tracking.** Root,
+  `web/backend/`, and `web/frontend/` `CLAUDE.md` are now git-ignored
+  — they're local-only AI-session conventions and their dense
+  internal-conventions content was not worth exposing as part of the
+  public fork's surface area. Earlier versions remain in git history
+  (cannot be retroactively scrubbed without a destructive force-push
+  that would break existing clones). The `.gitignore` also gained
+  pre-emptive patterns for `THREAT-MODEL*.md`, `SECURITY-REVIEW*.md`,
+  `*.security.md`, and `.security/` so future security-review output
+  never reaches the public repo accidentally.
+
 ### Security
 
 - **Three production secrets now hard-required at startup.** `JWT_SECRET`,
