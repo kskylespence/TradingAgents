@@ -22,7 +22,14 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30",
     "alembic>=1.14",
+    # passlib 1.7.4 reads bcrypt.__about__.__version__ which was removed in
+    # bcrypt 4.x. Without a pin, pip installs bcrypt 5.x and every verify()
+    # logs "(trapped) error reading bcrypt version" — and on some host
+    # toolchains the fallback path silently fails. Pin to the last 3.x
+    # release, which passlib 1.7.4 verifies cleanly. Track passlib's
+    # next release for proper bcrypt 4+ support.
     "passlib[bcrypt]>=1.7.4",
+    "bcrypt<4.0",
     "pyjwt>=2.10",
     "cryptography>=44",
     "python-multipart>=0.0.20",
