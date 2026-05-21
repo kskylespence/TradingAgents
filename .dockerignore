@@ -1,15 +1,41 @@
+# Version control
 .git
+.gitignore
+.gitattributes
+
+# Python virtual envs and caches
 .venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Node / frontend build artefacts (rebuilt inside the image)
+node_modules
+web/frontend/node_modules
+web/frontend/dist
+web/backend/app/static/*
+
+# Local secrets and environment files
 .env
-.claude
+.env.local
+.env.*.local
+
+# Editor / OS noise
 .idea
 .vscode
 .DS_Store
-__pycache__
-*.egg-info
-build
-dist
-results
-eval_results
-Dockerfile
-docker-compose.yml
+Thumbs.db
+
+# Claude tooling and worktrees
+.claude/
+
+# Local report output and test artefacts
+reports/
+results/
+eval_results/
+tests/__pycache__
