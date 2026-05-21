@@ -23,6 +23,8 @@ from .config import get_settings
 from .db import dispose_engine
 from .logging_config import configure_logging
 from . import routers as routers_registry
+from . import middleware as middleware_registry
+from . import lifespan_hooks as lifespan_registry
 
 # --- Router auto-discovery ---
 # `app.routers` auto-imports every submodule on package load (see
@@ -36,15 +38,27 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup + shutdown lifecycle."""
+    """Startup + shutdown lifecycle.
+
+    Lifespan hooks live in `app/lifespan_hooks/` — each submodule decorates
+    its callbacks with `@on_startup` / `@on_shutdown`. Startup hooks run in
+    registration order; shutdown hooks run in reverse registration order so
+    teardown unwinds setup. Shutdown errors are logged and swallowed so the
+    rest of teardown still completes.
+    """
     configure_logging()
     log.info("backend.startup", extra={"app_env": get_settings().app_env})
-    # task #5 (crash recovery): scan for orphaned `running` rows here.
-    # task #6 (disk pruner): start background `asyncio.create_task(disk_pruner())`.
+    for hook in lifespan_registry.STARTUP_HOOKS:
+        await hook(app)
     try:
         yield
     finally:
         log.info("backend.shutdown")
+        for hook in reversed(lifespan_registry.SHUTDOWN_HOOKS):
+            try:
+                await hook(app)
+            except Exception:
+                log.exception("backend.shutdown_hook_failed", extra={"hook": hook.__name__})
         await dispose_engine()
 
 
@@ -77,6 +91,10 @@ def create_app() -> FastAPI:
     @app.get("/api/health", tags=["bootstrap"])
     async def _placeholder_health() -> JSONResponse:
         return JSONResponse({"status": "ok", "placeholder": True})
+
+    # Install registered middleware (FastAPI applies in reverse registration
+    # order; the LAST add_middleware wraps the request first).
+    middleware_registry.install_all(app)
 
     # Include every registered router under `/api`.
     for router in routers_registry.ROUTERS:
