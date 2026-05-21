@@ -37,7 +37,7 @@ cd web/frontend && npm install            # frontend deps
 cd web/backend
 export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD_HASH="$(python -c 'from passlib.hash import bcrypt; print(bcrypt.hash(\"password\"))')"
-export JWT_SECRET=dev-secret-not-for-production
+export JWT_SECRET="$(openssl rand -hex 32)"
 export FERNET_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export DATABASE_URL=sqlite+aiosqlite:///./dev.db
 export FAKE_LLM=1

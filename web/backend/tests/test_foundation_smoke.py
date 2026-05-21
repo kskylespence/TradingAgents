@@ -216,3 +216,39 @@ def test_router_registry_starts_empty_and_accepts_registrations() -> None:
         assert len(ROUTERS) == starting + 1
     finally:
         ROUTERS.pop()
+
+
+def test_settings_requires_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings must refuse to construct when JWT_SECRET is unset."""
+    from pydantic import ValidationError
+
+    from app.config import Settings, get_settings
+
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_requires_fernet_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings must refuse to construct when FERNET_KEY is unset."""
+    from pydantic import ValidationError
+
+    from app.config import Settings, get_settings
+
+    monkeypatch.delenv("FERNET_KEY", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_requires_admin_password_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings must refuse to construct when ADMIN_PASSWORD_HASH is unset."""
+    from pydantic import ValidationError
+
+    from app.config import Settings, get_settings
+
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()

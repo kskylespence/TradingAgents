@@ -2,12 +2,20 @@
 
 Adds the standard browser-hardening headers to every response:
 
-- ``Content-Security-Policy`` — restrict resource origins to self; allow
-  inline scripts/styles for shadcn/Tailwind (tighten later via nonces).
-- ``Strict-Transport-Security`` — only when the request actually arrived
-  over HTTPS. Coolify's Traefik proxy terminates TLS, so the app sees
-  ``http`` even on prod; we check ``X-Forwarded-Proto`` as well as
-  ``request.url.scheme`` to honor the original scheme.
+- ``Content-Security-Policy`` — restrict resource origins to self.
+  ``script-src 'self'`` only (no ``'unsafe-inline'``) because Vite's
+  production build emits only external module scripts. ``style-src``
+  still allows ``'unsafe-inline'`` because Tailwind/shadcn injects
+  inline styles.
+- ``Strict-Transport-Security`` — only when the request actually
+  arrived over HTTPS as reported by ``request.url.scheme``. In
+  production we rely on uvicorn's ``--proxy-headers`` flag (which
+  enables Starlette's ProxyHeadersMiddleware) to rewrite the scheme
+  from the trusted reverse proxy's ``X-Forwarded-Proto`` header before
+  our middleware sees the request. We deliberately do NOT consult the
+  raw ``X-Forwarded-Proto`` header in app code, since that would let
+  an attacker poison HSTS / cookie ``Secure`` flags by sending the
+  header themselves to a directly-exposed uvicorn.
 - ``X-Frame-Options: DENY`` — defense-in-depth against clickjacking.
 - ``X-Content-Type-Options: nosniff`` — disable MIME sniffing.
 - ``Referrer-Policy: strict-origin-when-cross-origin`` — leak as little
@@ -32,30 +40,12 @@ from . import register
 
 CSP_VALUE = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
     "connect-src 'self';"
 )
 HSTS_VALUE = "max-age=63072000; includeSubDomains; preload"
-
-
-def _is_https(request: Request) -> bool:
-    """Return True if the original client request was HTTPS.
-
-    Coolify's reverse proxy terminates TLS and forwards ``http://`` to the
-    app, so the app's view of ``request.url.scheme`` will be ``http`` even
-    on production. The proxy MUST set ``X-Forwarded-Proto: https`` for us
-    to know — we trust that header here because the deployment topology
-    guarantees the proxy is the only thing in front of us.
-    """
-    if request.url.scheme == "https":
-        return True
-    forwarded = request.headers.get("x-forwarded-proto", "")
-    # Header may be a comma-separated list (RFC 7239-ish behavior); take
-    # the first value as the originating scheme.
-    first = forwarded.split(",", 1)[0].strip().lower()
-    return first == "https"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -70,7 +60,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         headers.setdefault("X-Frame-Options", "DENY")
         headers.setdefault("X-Content-Type-Options", "nosniff")
         headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        if _is_https(request):
+        if request.url.scheme == "https":
             headers.setdefault("Strict-Transport-Security", HSTS_VALUE)
         return response
 

@@ -51,10 +51,14 @@ and cleared by `POST /api/auth/logout`.
 | `csrf_token` | no | 32-byte hex token. The SPA reads it from JS and echoes it as `X-CSRF-Token` on state-changing requests. |
 
 Both cookies use `SameSite=Lax` and `Secure` when the original request
-was HTTPS (the middleware honors `X-Forwarded-Proto` so cookies behave
-correctly behind Coolify's Traefik). TTL is controlled by
-`JWT_TTL_SECONDS` (default `604800` = 7 days); the cookie `max_age`
-matches.
+was HTTPS. The HTTPS check reads `request.url.scheme`, which uvicorn's
+`ProxyHeadersMiddleware` rewrites from the trusted reverse-proxy hop
+when the entrypoint runs uvicorn with `--proxy-headers
+--forwarded-allow-ips='*'` (it does — see `entrypoint.sh`). The app
+code does NOT parse raw `X-Forwarded-Proto` itself; that header is only
+trusted via Starlette's middleware, which is what Coolify+Traefik
+expects. TTL is controlled by `JWT_TTL_SECONDS` (default `604800` =
+7 days); the cookie `max_age` matches.
 
 **Rotation.** Changing `JWT_SECRET` invalidates every existing JWT
 immediately — same as forcing a global logout. This is the
@@ -98,8 +102,12 @@ Implemented in `web/backend/app/services/rate_limit.py`.
 | Failures per IP per window | 5 |
 | Lockout response | `401 {"detail": "Too many login attempts"}` + `Retry-After: <seconds>` |
 
-The client IP is taken from the leftmost `X-Forwarded-For` entry first
-(set by Coolify / Traefik) and falls back to `request.client.host`.
+The client IP is taken from `request.client.host`, which is the
+trusted post-`--proxy-headers` value populated by uvicorn from the
+reverse proxy's rightmost `X-Forwarded-For` hop. The app code does NOT
+parse raw `X-Forwarded-For` itself — doing so would let a direct
+attacker spoof the leftmost value on every request and bypass the
+limiter entirely. See `entrypoint.sh` for the uvicorn invocation.
 
 Every attempt — success or failure — is persisted to the
 `login_attempts` table. On process restart, the first `check()` per IP

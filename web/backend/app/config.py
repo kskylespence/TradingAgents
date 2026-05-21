@@ -33,22 +33,28 @@ class Settings(BaseSettings):
     # --- Auth (admin/single-user) ---
     admin_username: str = Field(default="admin")
     admin_password_hash: str = Field(
-        default="",
-        description="bcrypt hash, e.g. produced by passlib.hash.bcrypt",
+        ...,
+        min_length=60,
+        description=(
+            "Required. bcrypt hash (always 60 chars), produced by "
+            "passlib.hash.bcrypt. MUST be set via env var."
+        ),
     )
     jwt_secret: str = Field(
-        default="dev-jwt-secret-change-me",
-        description="HMAC secret for JWT signing",
+        ...,
+        min_length=32,
+        description="Required HMAC secret for JWT signing. MUST be set via env var.",
     )
     jwt_ttl_seconds: int = Field(default=604800)  # 7 days
 
     # --- Encryption (Fernet, for stored API keys) ---
     fernet_key: str = Field(
-        default="",
+        ...,
+        min_length=44,
         description=(
-            "Fernet master key. Generate with: "
-            "python -c \"from cryptography.fernet import Fernet; "
-            "print(Fernet.generate_key().decode())\""
+            "Required Fernet master key (44-char urlsafe-b64). MUST be set via "
+            "env var. Generate with: python -c \"from cryptography.fernet import "
+            "Fernet; print(Fernet.generate_key().decode())\""
         ),
     )
 

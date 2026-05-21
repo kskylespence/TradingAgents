@@ -1,7 +1,13 @@
 """In-memory + DB-backed login rate limiter.
 
-Keyed on the client IP (taken from ``X-Forwarded-For`` first header, then
-``request.client.host`` as fallback — Coolify's Traefik sets XFF).
+Keyed on the client IP from ``request.client.host``. Uvicorn is launched
+with ``--proxy-headers --forwarded-allow-ips='*'`` (see ``entrypoint.sh``)
+which runs Starlette's ``ProxyHeadersMiddleware`` and resolves the real
+client IP from ``X-Forwarded-For`` BEFORE the request reaches the app —
+populating ``request.client.host`` with the trusted value. We never parse
+XFF ourselves; doing so would re-introduce the spoofable-leftmost bug
+where an attacker rotates ``X-Forwarded-For`` per request to bypass the
+limiter (see ``tests/test_rate_limit.py::test_rate_limit_resists_xff_spoof``).
 
 State lives in memory for the hot path; every attempt is also persisted
 to the ``login_attempts`` table so a server restart does NOT reset an
@@ -37,19 +43,26 @@ DEFAULT_WINDOW_SECONDS = 5 * 60
 def client_ip(request: Request) -> str:
     """Best-effort client IP extraction.
 
-    ``X-Forwarded-For`` may contain a comma-separated chain; the leftmost
-    value is the original client per RFC 7239 convention.
+    Returns ``request.client.host`` directly. We rely on uvicorn's
+    ``ProxyHeadersMiddleware`` (enabled in ``entrypoint.sh`` via
+    ``--proxy-headers --forwarded-allow-ips='*'``) to resolve the real
+    client IP from ``X-Forwarded-For`` UPSTREAM of the app — at the ASGI
+    layer, before the request reaches FastAPI. The wildcard
+    ``--forwarded-allow-ips='*'`` is safe here because the Coolify Traefik
+    proxy is the only thing in front of uvicorn; "trust the IP that
+    connects to me" IS "trust Traefik" in this deployment.
+
+    We deliberately do NOT parse ``X-Forwarded-For`` here. The leftmost
+    value of XFF is attacker-controlled (each hop appends, so the
+    leftmost entry is whatever the original requester sent), so reading
+    it would let a remote attacker rotate a spoofed IP per request and
+    bypass the rate limiter entirely.
     """
-    xff = request.headers.get("x-forwarded-for", "").strip()
-    if xff:
-        first = xff.split(",", 1)[0].strip()
-        if first:
-            return first
     if request.client and request.client.host:
         return request.client.host
     # Last-resort: a stable but harmless string so the limiter still
     # functions in pathological cases (e.g. ASGI test client without
-    # a `client` attribute).
+    # a ``client`` attribute).
     return "unknown"
 
 

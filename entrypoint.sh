@@ -20,4 +20,6 @@ cd /app/web/backend && alembic upgrade head
 exec uvicorn app.main:app \
     --app-dir /app/web/backend \
     --host 0.0.0.0 \
-    --port 8000
+    --port 8000 \
+    --proxy-headers \
+    --forwarded-allow-ips='*'

@@ -303,6 +303,74 @@ def test_logout_without_jwt_returns_401(client: TestClient) -> None:
     assert resp.status_code == 401, resp.text
 
 
+def test_login_cookie_secure_flag_uses_url_scheme_not_xforwarded_proto(
+    test_app,
+) -> None:
+    """The ``Secure`` flag on auth cookies must follow ``request.url.scheme``.
+
+    Vuln 4 fix: the app no longer trusts a raw ``X-Forwarded-Proto``
+    header to determine HTTPS. In production, uvicorn's
+    ``--proxy-headers`` rewrites ``request.url.scheme`` from the trusted
+    proxy's header before the app sees the request. We simulate the
+    post-rewrite condition by setting ``base_url='https://...'`` on
+    TestClient.
+
+    - HTTPS request → cookies have Secure
+    - HTTP request → cookies do NOT have Secure
+    - HTTP request + raw X-Forwarded-Proto: https → cookies do NOT have
+      Secure (the raw header is no longer trusted by the app code)
+    """
+    # 1) HTTPS request → Secure flag present on both cookies
+    with TestClient(test_app, base_url="https://testserver") as c:
+        resp = c.post(
+            "/api/auth/login",
+            json={"username": "test-admin", "password": PASSWORD},
+        )
+        assert resp.status_code == 204, resp.text
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        access = next(h for h in set_cookie_headers if h.startswith("access_token="))
+        csrf = next(h for h in set_cookie_headers if h.startswith("csrf_token="))
+        assert "Secure" in access, f"expected Secure on HTTPS access_token: {access!r}"
+        assert "Secure" in csrf, f"expected Secure on HTTPS csrf_token: {csrf!r}"
+
+    # 2) HTTP request → Secure flag MUST NOT be present
+    from app.services.rate_limit import login_rate_limiter
+    login_rate_limiter.reset()
+    with TestClient(test_app, base_url="http://testserver") as c:
+        resp = c.post(
+            "/api/auth/login",
+            json={"username": "test-admin", "password": PASSWORD},
+        )
+        assert resp.status_code == 204, resp.text
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        access = next(h for h in set_cookie_headers if h.startswith("access_token="))
+        csrf = next(h for h in set_cookie_headers if h.startswith("csrf_token="))
+        assert "Secure" not in access, (
+            f"unexpected Secure on HTTP access_token: {access!r}"
+        )
+        assert "Secure" not in csrf, (
+            f"unexpected Secure on HTTP csrf_token: {csrf!r}"
+        )
+
+    # 3) HTTP request + spoofed X-Forwarded-Proto: https → Secure MUST
+    # still be absent. We don't honour the raw header in app code
+    # anymore; only the proxy-rewritten request.url.scheme.
+    login_rate_limiter.reset()
+    with TestClient(test_app, base_url="http://testserver") as c:
+        resp = c.post(
+            "/api/auth/login",
+            json={"username": "test-admin", "password": PASSWORD},
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        assert resp.status_code == 204, resp.text
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        access = next(h for h in set_cookie_headers if h.startswith("access_token="))
+        assert "Secure" not in access, (
+            "raw X-Forwarded-Proto must not control Secure flag; "
+            f"got: {access!r}"
+        )
+
+
 def test_decode_access_token_rejects_garbage() -> None:
     """Unit test on the helper itself — not a TestClient round-trip."""
     import os

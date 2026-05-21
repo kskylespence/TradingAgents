@@ -41,4 +41,8 @@ ENV TRADINGAGENTS_MEMORY_LOG_PATH=/data/tradingagents/memory/trading_memory.md
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD curl -fsS http://localhost:8000/api/health || exit 1
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin tradingagents \
+ && mkdir -p /data/tradingagents \
+ && chown -R tradingagents:tradingagents /data/tradingagents /app
+USER tradingagents
 ENTRYPOINT ["/entrypoint.sh"]

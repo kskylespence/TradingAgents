@@ -108,11 +108,13 @@ all live on disk. Coolify provides "Persistent Storage" per-application.
 The container's entrypoint creates `logs/`, `cache/`, `memory/`, and
 `reports/` subdirectories under that path on first boot.
 
-> **Volume permissions gotcha.** The container runs as `root` by default
-> (we intentionally do not switch to a non-root user in v1, so that the
-> entrypoint's `mkdir -p` is guaranteed to succeed on a fresh volume).
-> If you later add a `USER appuser` directive, you must also `chown` the
-> mounted volume — see Troubleshooting.
+> **Volume permissions gotcha.** The container runs as the non-root
+> `tradingagents` user (UID 10001). The Dockerfile pre-creates
+> `/data/tradingagents` and `chown`s it during the image build, so a
+> fresh Coolify-provisioned volume mounted at that path inherits the
+> correct ownership on first boot. If you mount a pre-existing host
+> directory with restrictive ownership, you must `chown` it to UID
+> 10001 — see Troubleshooting.
 
 ---
 
@@ -284,17 +286,19 @@ If all seven of these pass, the deploy is good.
 
 ### Volume permissions: `PermissionError: [Errno 13] Permission denied: '/data/tradingagents/...'`
 
-The container runs as `root` so the entrypoint's `mkdir -p` should always
-succeed on a fresh volume. If you mounted an existing host directory with
+The container runs as the non-root `tradingagents` user (UID 10001).
+The Dockerfile `chown`s `/data/tradingagents` at build time, so a
+fresh Coolify volume mounted at that path inherits correct ownership
+on first boot. If you mounted a pre-existing host directory with
 restrictive ownership, fix it from the Coolify terminal:
 
 ```bash
-chown -R root:root /data/tradingagents
+chown -R 10001:10001 /data/tradingagents
 chmod -R u+rwX /data/tradingagents
 ```
 
-If you later switched to a non-root `USER` directive in the Dockerfile,
-chown to that UID/GID instead, e.g. `chown -R 1000:1000`.
+(UID 10001 = `tradingagents`; the user is also pre-created in the
+image.)
 
 ### `alembic upgrade head` fails on first boot
 
@@ -392,7 +396,15 @@ docker logs <coolify-app-container> 2>&1 | tail -50
 
 Typical causes:
 
-- Bad `FERNET_KEY` length — must be 44 url-safe base64 chars. Regenerate.
-- Missing `JWT_SECRET` — the app refuses to start without it.
+- Missing or short `JWT_SECRET` — pydantic-settings refuses to construct
+  with `ValidationError` if the env var is unset or shorter than 32
+  chars. The same hard-require applies to `FERNET_KEY` (≥ 44 chars) and
+  `ADMIN_PASSWORD_HASH` (≥ 60 chars — a bcrypt hash is always 60).
+  The error message names the offending field; regenerate from Step 1
+  and redeploy.
+- Bad `FERNET_KEY` content — must be 44 url-safe base64 chars produced
+  by `Fernet.generate_key()`. A 44-char string of the wrong format
+  passes length validation but fails when the app first tries to
+  encrypt/decrypt (`FernetNotConfiguredError`).
 - Wrong `DATABASE_URL` scheme — must be `postgresql+asyncpg://`, not bare
   `postgresql://`.

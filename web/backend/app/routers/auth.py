@@ -30,7 +30,6 @@ from ..auth import (
     COOKIE_CSRF_TOKEN,
     create_access_token,
     get_current_user,
-    is_secure_request,
     verify_password,
 )
 from ..config import get_settings
@@ -138,7 +137,7 @@ async def login(
         response,
         token=token,
         csrf_token=csrf_token,
-        secure=is_secure_request(request),
+        secure=request.url.scheme == "https",
         max_age=cookie_max_age,
     )
     response.status_code = status.HTTP_204_NO_CONTENT
@@ -156,7 +155,7 @@ async def logout(
     _user: AuthUser = Depends(get_current_user),
 ) -> Response:
     """Clear both auth cookies. No body. Requires JWT (per plan)."""
-    _clear_auth_cookies(response, secure=is_secure_request(request))
+    _clear_auth_cookies(response, secure=request.url.scheme == "https")
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
 

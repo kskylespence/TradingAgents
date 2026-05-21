@@ -15,8 +15,11 @@ Security posture:
 - JWT signed with HS256 using ``settings.jwt_secret``; TTL controlled by
   ``settings.jwt_ttl_seconds``.
 - Cookie is set HttpOnly + SameSite=Lax. ``Secure`` is enabled when the
-  request is HTTPS (Coolify terminates TLS, so we also honor
-  ``X-Forwarded-Proto``).
+  request is HTTPS, as reported by ``request.url.scheme``. In production
+  this works behind Coolify's Traefik reverse proxy because uvicorn is
+  started with ``--proxy-headers``, which lets Starlette's
+  ProxyHeadersMiddleware rewrite the scheme from the trusted proxy's
+  ``X-Forwarded-Proto`` header before any app code runs.
 - bcrypt verification is constant-time via ``passlib.hash.bcrypt.verify``.
 """
 
@@ -116,19 +119,6 @@ async def get_current_user(request: Request) -> AuthUser:
     return AuthUser(username=username)
 
 
-def is_secure_request(request: Request) -> bool:
-    """True if the original client request was HTTPS.
-
-    Matches `middleware.security_headers._is_https` so cookies and HSTS
-    behave consistently behind the Coolify Traefik reverse proxy.
-    """
-    if request.url.scheme == "https":
-        return True
-    forwarded = request.headers.get("x-forwarded-proto", "")
-    first = forwarded.split(",", 1)[0].strip().lower()
-    return first == "https"
-
-
 __all__ = [
     "COOKIE_ACCESS_TOKEN",
     "COOKIE_CSRF_TOKEN",
@@ -137,5 +127,4 @@ __all__ = [
     "create_access_token",
     "decode_access_token",
     "get_current_user",
-    "is_secure_request",
 ]

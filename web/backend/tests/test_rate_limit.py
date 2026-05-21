@@ -223,12 +223,21 @@ def test_restart_simulation_db_rows_still_block(
 # --------------------------------------------------------------------------- #
 
 
-def test_client_ip_prefers_xff(monkeypatch) -> None:
+def test_client_ip_returns_request_client_host(monkeypatch) -> None:
+    """``client_ip`` returns ``request.client.host`` and IGNORES XFF.
+
+    Uvicorn's ``--proxy-headers`` (configured in ``entrypoint.sh``)
+    resolves the real client IP from ``X-Forwarded-For`` upstream of the
+    app, populating ``request.client.host`` with the trusted value. The
+    app must NOT re-parse XFF itself, because the leftmost value of XFF
+    is attacker-controlled (see ``test_rate_limit_resists_xff_spoof``).
+    """
     from starlette.requests import Request
 
     from app.services.rate_limit import client_ip
 
-    # Build a minimal Starlette Request scope.
+    # XFF present but must be ignored — uvicorn already gave us the real
+    # client in ``scope["client"]``.
     scope = {
         "type": "http",
         "method": "POST",
@@ -241,12 +250,58 @@ def test_client_ip_prefers_xff(monkeypatch) -> None:
         "root_path": "",
     }
     req = Request(scope)
-    assert client_ip(req) == "203.0.113.7"
+    assert client_ip(req) == "10.0.0.99"
 
-    # Fall back to request.client when no XFF
+    # No XFF: still returns the trusted client host.
     scope_no_xff = {**scope, "headers": []}
     req2 = Request(scope_no_xff)
     assert client_ip(req2) == "10.0.0.99"
+
+    # No client (e.g. raw ASGI test): falls back to "unknown".
+    scope_no_client = {**scope, "client": None, "headers": []}
+    req3 = Request(scope_no_client)
+    assert client_ip(req3) == "unknown"
+
+
+def test_rate_limit_resists_xff_spoof() -> None:
+    """Rotating ``X-Forwarded-For`` does NOT create a fresh per-IP bucket.
+
+    Pre-fix, ``client_ip`` parsed the leftmost XFF value, which a remote
+    attacker can fully control. Rotating XFF per request would defeat
+    the limiter entirely. Post-fix we rely on uvicorn's proxy-headers
+    middleware (enabled in ``entrypoint.sh`` via ``--proxy-headers
+    --forwarded-allow-ips='*'``) to set ``request.client.host`` to the
+    real client IP. The app no longer touches XFF.
+    """
+    from starlette.requests import Request
+
+    from app.services.rate_limit import client_ip, login_rate_limiter
+
+    login_rate_limiter.reset()
+
+    spoofs = [
+        b"1.2.3.4",
+        b"5.6.7.8",
+        b"9.10.11.12",
+    ]
+    for spoof in spoofs:
+        for _ in range(10):
+            scope = {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/auth/login",
+                "headers": [(b"x-forwarded-for", spoof)],
+                "client": ("10.0.0.1", 12345),
+                "query_string": b"",
+                "scheme": "http",
+                "server": ("testserver", 80),
+                "root_path": "",
+            }
+            req = Request(scope)
+            assert client_ip(req) == "10.0.0.1", (
+                f"spoofed XFF {spoof!r} leaked into client_ip — limiter is "
+                f"bypassable"
+            )
 
 
 def test_seconds_until_free_is_positive() -> None:
