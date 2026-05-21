@@ -217,3 +217,7 @@ __marimo__/
 
 # Cache
 **/data_cache/
+
+# Claude Code local state (worktrees, settings.local.json, plans, etc.)
+.claude/
+

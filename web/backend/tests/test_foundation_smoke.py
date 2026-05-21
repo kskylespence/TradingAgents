@@ -17,7 +17,13 @@ from pydantic import TypeAdapter
 
 
 def test_app_starts_and_health_returns_200() -> None:
-    """The placeholder /api/health endpoint responds 200 with a JSON body."""
+    """The real /api/health endpoint responds 200 with the documented shape.
+
+    The placeholder that used to live in main.py was removed because
+    FastAPI matches routes in first-registration order; leaving the
+    placeholder there would silently shadow the real router and have
+    Coolify report "ok" even on DB-down.
+    """
     from app.main import app
 
     assert app.title == "TradingAgents Web UI"
@@ -26,9 +32,11 @@ def test_app_starts_and_health_returns_200() -> None:
         resp = client.get("/api/health")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ok"
-    # The placeholder marks itself so we can spot it in a deployed env.
-    assert body.get("placeholder") is True
+    # Real handler always sets status (ok | degraded); db key always present.
+    assert body["status"] in {"ok", "degraded"}
+    assert body["db"] in {"ok", "down"}
+    # No more placeholder marker — the real router superseded it.
+    assert "placeholder" not in body
 
 
 def test_bootstrap_health_alias() -> None:

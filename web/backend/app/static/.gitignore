@@ -1,8 +1,6 @@
-# The React build output (`web/frontend/npm run build`) is emitted here
-# locally and copied into this directory in the Docker image-build stage
-# (see Dockerfile: `COPY --from=fe /fe/dist /app/web/backend/app/static`).
-# Nothing in this directory is committed except `.gitignore` and `.gitkeep`,
-# which exist so the directory is reachable on a fresh checkout.
+# Build artifacts emitted by `web/frontend/npm run build` and copied in at
+# image-build time. We only commit `.gitkeep` (and this file) so the
+# directory exists in git.
 *
 !.gitignore
 !.gitkeep

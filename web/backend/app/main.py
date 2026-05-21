@@ -76,21 +76,13 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json" if settings.debug else None,
     )
 
-    # Placeholder health endpoint so the smoke test has something to hit
-    # before the catalog/health router (task #4) lands. The real router
-    # will register `/health` and FastAPI's last-registered-wins behavior
-    # means the placeholder is silently superseded once task #4 imports.
+    # Bootstrap liveness path — bypasses the auto-discovered routers so
+    # something always answers even if a router import fails. Kept
+    # separately from /api/health (which is the real health endpoint
+    # served by app/routers/health.py with DB + disk + active-run info).
     @app.get("/api/_bootstrap_health", tags=["bootstrap"])
     async def _bootstrap_health() -> JSONResponse:
         return JSONResponse({"status": "ok"})
-
-    # Mirror at /api/health too so a curl-style smoke test against the
-    # canonical path works before task #4 ships. Once task #4 registers
-    # its own `GET /health` router under `/api`, FastAPI's matching will
-    # prefer the included router's route since it's added later.
-    @app.get("/api/health", tags=["bootstrap"])
-    async def _placeholder_health() -> JSONResponse:
-        return JSONResponse({"status": "ok", "placeholder": True})
 
     # Install registered middleware (FastAPI applies in reverse registration
     # order; the LAST add_middleware wraps the request first).
