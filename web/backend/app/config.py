@@ -7,11 +7,12 @@ dependency for use in FastAPI routers.
 
 from __future__ import annotations
 
+import base64
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,11 +34,27 @@ class Settings(BaseSettings):
     # --- Auth (admin/single-user) ---
     admin_username: str = Field(default="admin")
     admin_password_hash: str = Field(
-        ...,
-        min_length=60,
+        default="",
         description=(
-            "Required. bcrypt hash (always 60 chars), produced by "
-            "passlib.hash.bcrypt. MUST be set via env var."
+            "bcrypt hash (always 60 chars), produced by passlib.hash.bcrypt. "
+            "Provide via ADMIN_PASSWORD_HASH OR ADMIN_PASSWORD_HASH_B64 — "
+            "the post-validator promotes the b64 fallback if the direct "
+            "field is empty. min_length is checked in the post-validator "
+            "so an empty value falls through to the b64 fallback without "
+            "tripping field-level validation."
+        ),
+    )
+    admin_password_hash_b64: str = Field(
+        default="",
+        description=(
+            "Optional base64-encoded bcrypt hash. Use this when the "
+            "deployment platform interpolates `$` characters in env vars "
+            "(Coolify mangles `$2b$12$...` regardless of its is_literal "
+            "flag, dropping the `$<varname>` segment to empty and leaving "
+            "a truncated hash). Base64-encoded bytes contain none of the "
+            "shell metacharacters that trip platform interpolation, so "
+            "this round-trips intact. Decoded into admin_password_hash "
+            "by the model post-validator below."
         ),
     )
     jwt_secret: str = Field(
@@ -86,6 +103,44 @@ class Settings(BaseSettings):
         if isinstance(v, Path):
             return v
         return Path(str(v))
+
+    @model_validator(mode="after")
+    def _resolve_admin_password_hash(self) -> "Settings":
+        """Promote ADMIN_PASSWORD_HASH_B64 to admin_password_hash if needed.
+
+        Workaround for env-var platforms (notably Coolify) that perform
+        shell-style ``$VAR`` interpolation on values regardless of their
+        is_literal flag. bcrypt hashes always contain three ``$`` chars
+        (``$2b$<cost>$<salt+digest>``), each of which the platform reads
+        as the start of a variable reference — silently dropping
+        ``$<chars>`` segments and shipping a truncated hash to the
+        container. Base64 has no ``$`` chars and round-trips cleanly.
+
+        After this validator runs ``admin_password_hash`` is always the
+        canonical 60-char bcrypt string (or we raise so the deploy fails
+        loudly before any login attempt).
+        """
+        if not self.admin_password_hash and self.admin_password_hash_b64:
+            try:
+                decoded = base64.b64decode(
+                    self.admin_password_hash_b64, validate=True
+                ).decode("utf-8")
+            except (ValueError, UnicodeDecodeError) as e:
+                raise ValueError(
+                    "ADMIN_PASSWORD_HASH_B64 is set but not valid "
+                    f"base64-encoded UTF-8: {e}"
+                ) from e
+            self.admin_password_hash = decoded
+
+        if len(self.admin_password_hash) < 60:
+            raise ValueError(
+                "admin_password_hash must be at least 60 chars (bcrypt). "
+                "Set ADMIN_PASSWORD_HASH directly, or — if your deploy "
+                "platform mangles `$` characters — set "
+                "ADMIN_PASSWORD_HASH_B64 to the base64 of the hash. "
+                f"Got length {len(self.admin_password_hash)}."
+            )
+        return self
 
 
 @lru_cache(maxsize=1)

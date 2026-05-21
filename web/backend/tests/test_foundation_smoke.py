@@ -249,6 +249,42 @@ def test_settings_requires_admin_password_hash(monkeypatch: pytest.MonkeyPatch) 
     from app.config import Settings, get_settings
 
     monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH_B64", raising=False)
+    get_settings.cache_clear()
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_settings_accepts_admin_password_hash_b64(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ADMIN_PASSWORD_HASH_B64 (base64-encoded) is decoded to admin_password_hash.
+
+    Workaround for env-var platforms like Coolify that mangle `$` chars
+    regardless of their is_literal flag — base64 has no `$` to interpolate.
+    """
+    import base64
+
+    from app.config import Settings, get_settings
+
+    real_hash = "$2b$12$z4CH06jlx0JOo/b9YVd.COzaLPojCPfhty0elojSqSz.TBrq9eW4a"
+    encoded = base64.b64encode(real_hash.encode()).decode()
+
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH_B64", encoded)
+    get_settings.cache_clear()
+    settings = Settings()
+    assert settings.admin_password_hash == real_hash
+
+
+def test_settings_rejects_malformed_admin_password_hash_b64(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid base64 in ADMIN_PASSWORD_HASH_B64 must fail loudly, not silently."""
+    from pydantic import ValidationError
+
+    from app.config import Settings, get_settings
+
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH_B64", "this is not valid base64!!!")
     get_settings.cache_clear()
     with pytest.raises(ValidationError):
         Settings()
