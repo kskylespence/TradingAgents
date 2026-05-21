@@ -57,3 +57,26 @@ def get_ollama_base_url() -> str:
     localhost default when unset.
     """
     return os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+
+
+def _is_available(spec: ProviderSpec) -> bool:
+    """Is this provider's credential set in the environment?"""
+    if spec.key == "ollama":
+        return bool(os.environ.get("OLLAMA_BASE_URL"))
+    if spec.key == "azure":
+        return bool(os.environ.get("AZURE_OPENAI_API_KEY")) and bool(
+            os.environ.get("AZURE_OPENAI_ENDPOINT")
+        )
+    from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
+    env = PROVIDER_API_KEY_ENV.get(spec.key)
+    return bool(env) and bool(os.environ.get(env))
+
+
+def available_providers() -> Tuple[ProviderSpec, ...]:
+    """Subset of PROVIDERS whose credentials are present in env.
+
+    The CLI still iterates the full PROVIDERS tuple; this helper drives
+    the web UI's provider dropdown so users only see providers that
+    have a credible chance of working.
+    """
+    return tuple(p for p in PROVIDERS if _is_available(p))

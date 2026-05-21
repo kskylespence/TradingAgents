@@ -53,6 +53,44 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **Ollama provider/model dropdowns now reflect what the configured
+  endpoint can actually serve.** Two related bugs in one fix. (1) The
+  hardcoded Ollama entries in `tradingagents/llm_clients/model_catalog.py`
+  listed *local-Ollama* tags (`qwen3:latest`, `glm-4.7-flash:latest`,
+  `gpt-oss:latest`) — but the deployed app points `OLLAMA_BASE_URL` at
+  Ollama Cloud (`https://ollama.com/v1`), whose model IDs are different
+  (`gpt-oss:120b`, `qwen3-coder:480b`, `glm-4.7`, …). The UI offered the
+  user three model names that physically could not exist on the
+  configured endpoint, producing a 10-second-late `NotFoundError: model
+  "qwen3:latest" not found` from the engine's first chat-completions
+  call. The catalog now lives-discovers Ollama models at request time
+  via `GET {OLLAMA_BASE_URL}/models` (the OpenAI-compatible list
+  endpoint that both local and Cloud Ollama implement), with a 5-minute
+  TTL cache that returns the last-good list on upstream failure so the
+  UI never goes blank. (2) `GET /api/catalog/providers` used to return
+  every provider the codebase knew about, regardless of whether the
+  deployment had credentials for any of them. The deployed app today
+  has only an Ollama Cloud token, so picking any other provider 401'd /
+  404'd ~10s into the run. Providers are now filtered by env-credential
+  presence (`tradingagents.providers.available_providers`), so the
+  dropdown is honest about what's actually wired up. Defense in depth:
+  `PUT /api/settings/defaults` and `POST /api/runs` both validate the
+  picked model against the live catalog and 400 before any state is
+  persisted; `GET /api/settings/defaults` auto-heals stale saved
+  values (the previously-saved `qwen3:latest` returns as `null` so the
+  form re-prompts). `GET /api/health` gains an optional `ollama` block
+  reporting upstream reachability when Ollama is the active provider.
+  The probe distinguishes `"ok"` (last fetch succeeded — `model_count`
+  may legitimately be `0`), `"down"` (last fetch failed — `error`
+  carries the reason), and `"unknown"` (no probe attempted in this
+  process) so an account with zero provisioned models doesn't trip a
+  false "down" alert. The `New Analysis` form now shows an inline
+  warning (`useHealth()` polls /api/health every 30s) when the
+  selected provider is Ollama and the upstream probe says down, so the
+  user gets the failure signal before submit instead of 10 seconds
+  after. `GET /api/health` is now typed end-to-end via a
+  `HealthResponse` Pydantic model mirrored in
+  `web/frontend/src/lib/types.ts`.
 - **Alembic migration `0002` adds the missing `login_attempts.id` column.**
   The 0001 migration omitted any primary key from `login_attempts` (the
   table is queried by `(ip, attempted_at)`, so a PK isn't needed for the

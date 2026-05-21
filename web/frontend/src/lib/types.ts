@@ -300,3 +300,28 @@ export interface Announcement {
   severity?: "info" | "warning" | "critical";
   published_at?: string;
 }
+
+// ----- Health (GET /api/health) -----
+
+export interface OllamaHealth {
+  /**
+   * `"ok"` — last upstream probe succeeded (model_count may legitimately be 0).
+   * `"down"` — last upstream probe failed; `error` carries the reason.
+   * `"unknown"` — no probe attempted yet in this process.
+   */
+  status: "ok" | "down" | "unknown";
+  url: string;
+  model_count: number | null;
+  error: string | null;
+}
+
+export interface HealthResponse {
+  /** Overall container health. Only `"degraded"` for in-container failures (e.g. DB down). */
+  status: "ok" | "degraded";
+  version: string;
+  db: "ok" | "down";
+  disk_free_mb: number | null;
+  active_run_id: string | null;
+  /** Populated when the active provider is ollama; absent otherwise. */
+  ollama: OllamaHealth | null;
+}

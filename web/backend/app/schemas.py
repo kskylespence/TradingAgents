@@ -352,6 +352,51 @@ class Announcement(_FrontendModel):
     published_at: Optional[datetime] = None
 
 
+# --------------------------------------------------------------------------- #
+# Health                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+class OllamaHealth(_FrontendModel):
+    """Per-provider health subblock returned by `/api/health` when ollama is active.
+
+    ``status`` distinguishes three cases:
+
+    * ``"ok"``      — last upstream probe succeeded. ``model_count`` is the
+                      real count (which can legitimately be ``0`` for an
+                      account with no models provisioned — that's still "ok").
+    * ``"down"``    — last upstream probe failed (timeout / 4xx / 5xx).
+                      ``error`` carries the underlying exception repr for
+                      ops triage. ``model_count`` is ``None``.
+    * ``"unknown"`` — no probe has been attempted yet in this process
+                      (cold start before the catalog endpoint has been
+                      hit). Both ``model_count`` and ``error`` are ``None``.
+    """
+
+    status: Literal["ok", "down", "unknown"]
+    url: str
+    model_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+class HealthResponse(_FrontendModel):
+    """Shape of `GET /api/health`.
+
+    The outer ``status`` reports OVERALL deployment health — it only flips
+    to ``"degraded"`` for in-container failures (DB unreachable). Upstream
+    LLM outages do NOT flip outer status (Coolify uses outer status to
+    decide container restarts; restarting won't fix an upstream blip).
+    Per-subsystem detail lives in dedicated fields (``db``, ``ollama``).
+    """
+
+    status: Literal["ok", "degraded"]
+    version: str
+    db: Literal["ok", "down"]
+    disk_free_mb: Optional[int] = None
+    active_run_id: Optional[str] = None
+    ollama: Optional[OllamaHealth] = None
+
+
 __all__ = [
     # Enums
     "Rating",
@@ -401,4 +446,7 @@ __all__ = [
     "RunEvent",
     # Announcements
     "Announcement",
+    # Health
+    "OllamaHealth",
+    "HealthResponse",
 ]

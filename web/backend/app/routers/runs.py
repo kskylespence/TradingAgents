@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from . import register
+from .. import catalog as catalog_svc
 from ..auth import get_current_user
 from ..db import get_session
 from ..models import Run
@@ -63,6 +64,54 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 # --------------------------------------------------------------------------- #
 
 
+async def _validate_models_against_catalog(body: RunRequest) -> None:
+    """Reject mismatched provider/model pairs with HTTP 400 BEFORE engine launch.
+
+    Defense in depth — even if the form somehow submits stale state (a
+    replayed POST, a stale browser tab, a curl client bypassing the UI),
+    the run must NOT start. The previous failure mode for Ollama Cloud
+    was a 10-second-late 500 surfacing the upstream 404; this turns it
+    into a fast, descriptive 400 before any state is persisted.
+
+    First checks that the provider itself is configured (credentials set
+    in env). Then validates each model against the live catalog for that
+    provider. Providers whose catalog includes the ``__custom__``
+    sentinel accept any model ID — that mirrors the settings router and
+    keeps the openrouter / azure / deepseek-style "Custom model ID"
+    affordance working.
+    """
+    from tradingagents.providers import available_providers
+
+    provider = body.llm_provider
+    avail_keys = {p.key for p in available_providers()}
+    if provider not in avail_keys:
+        available = ", ".join(sorted(avail_keys)) if avail_keys else "(none configured)"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Provider {provider!r} is not configured on this deployment. "
+                f"Available providers: {available}"
+            ),
+        )
+
+    for field_name, value, mode in (
+        ("quick_think_llm", body.quick_think_llm, "quick"),
+        ("deep_think_llm", body.deep_think_llm, "deep"),
+    ):
+        ids = {m.id for m in await catalog_svc.list_models(provider, mode)}  # type: ignore[arg-type]
+        if "__custom__" in ids:
+            continue
+        if value not in ids:
+            available = ", ".join(sorted(ids)) if ids else "(no models available)"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Model {value!r} is not available on provider "
+                    f"{provider!r}. Available: {available}"
+                ),
+            )
+
+
 @router.post("", status_code=status.HTTP_200_OK)
 @router.post("/", status_code=status.HTTP_200_OK)
 async def create_run(
@@ -74,7 +123,11 @@ async def create_run(
 
     Returns ``{run_id, status}`` immediately; the lifecycle runs in a
     background task and reports progress via SSE on ``/:id/events``.
+
+    Validates provider/model against the live catalog before launching
+    the engine — see ``_validate_models_against_catalog``.
     """
+    await _validate_models_against_catalog(body)
     run_id = await run_service.start_run(body, db)
     return {"run_id": str(run_id), "status": "queued"}
 

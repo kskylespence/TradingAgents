@@ -35,7 +35,7 @@ from cli.models import AnalystType
 from tradingagents.asset_types import filter_analysts_for_asset_type
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
-from tradingagents.providers import PROVIDERS
+from tradingagents.providers import available_providers
 
 from .schemas import (
     AssetType,
@@ -92,22 +92,23 @@ _LANGUAGES: tuple[tuple[str, str], ...] = (
 
 
 def list_providers() -> list[CatalogProvider]:
-    """Translate ``PROVIDERS`` into ``CatalogProvider`` instances.
+    """Translate the env-filtered provider list into ``CatalogProvider`` instances.
+
+    Only providers whose credentials are present in the environment are
+    returned — see ``tradingagents.providers.available_providers``. This
+    makes the frontend dropdown honest: a user can't pick a provider that
+    we have no way to talk to.
 
     ``regions`` is intentionally ``None`` for now — the underlying
-    ``ProviderSpec`` dataclass does not expose a region grouping. The
-    CLI's regional duplicates (``qwen``/``qwen-cn``, ``glm``/``glm-cn``,
-    ``minimax``/``minimax-cn``) are exposed as standalone provider entries
-    here; the frontend can collapse them into a regional sub-select by
-    matching on the shared ``-cn`` suffix.
+    ``ProviderSpec`` dataclass does not expose a region grouping.
 
-    ``requires_api_key`` is ``False`` only for ollama (the local runtime,
-    which has no auth). ``api_key_env`` falls back to an empty string for
-    ollama since the dataclass requires a str — the frontend keys off
-    ``requires_api_key`` for whether to prompt at all.
+    ``requires_api_key`` is ``False`` only for ollama. ``api_key_env``
+    falls back to an empty string for ollama since the dataclass requires
+    a str — the frontend keys off ``requires_api_key`` for whether to
+    prompt at all.
     """
     out: list[CatalogProvider] = []
-    for spec in PROVIDERS:
+    for spec in available_providers():
         env_var = PROVIDER_API_KEY_ENV.get(spec.key)
         requires = env_var is not None
         out.append(
@@ -122,20 +123,33 @@ def list_providers() -> list[CatalogProvider]:
     return out
 
 
-def list_models(provider: str, mode: Mode) -> list[CatalogModel]:
+async def list_models(provider: str, mode: Mode) -> list[CatalogModel]:
     """Return model options for ``(provider, mode)``.
 
-    Providers that allow a custom model ID (``id == "custom"`` appears in
-    their catalog list — currently deepseek, qwen, qwen-cn, glm, glm-cn,
-    minimax, minimax-cn, ollama) get a synthetic terminal entry with
-    ``id="__custom__"`` and ``allows_custom=True`` so the frontend can
-    swap to a text input when the user picks it.
+    Ollama is **live-discovered** via ``app.services.ollama_models``:
+    we call ``GET {OLLAMA_BASE_URL}/models`` (the OpenAI-compatible list
+    endpoint, supported by both local ollama-serve and Ollama Cloud) and
+    return whatever IDs the upstream reports. No ``__custom__`` sentinel
+    for ollama — the user picks from what's discoverably callable.
 
-    OpenRouter and Azure are not in ``MODEL_OPTIONS`` (their model lists
-    are dynamic / deployment-specific). For those we return only the
-    synthetic custom entry so the frontend always renders a usable input.
+    Other providers come from the static ``MODEL_OPTIONS``. Those whose
+    catalog includes a ``"custom"`` entry (deepseek, qwen, glm, minimax,
+    plus their -cn variants) get a synthetic ``__custom__`` terminal
+    entry so the frontend can swap to a text input. OpenRouter and Azure
+    aren't in ``MODEL_OPTIONS``; they fall back to the custom-only entry.
     """
     provider_key = provider.lower()
+
+    # Ollama: live discovery, never a __custom__ sentinel.
+    if provider_key == "ollama":
+        from app.services.ollama_models import list_ollama_models
+
+        ids = await list_ollama_models()
+        return [
+            CatalogModel(id=mid, label=mid, allows_custom=False)
+            for mid in ids
+        ]
+
     mode_options = MODEL_OPTIONS.get(provider_key, {})
     entries = mode_options.get(mode, [])
 

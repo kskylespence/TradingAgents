@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
+import { OllamaUpstreamAlert } from "@/components/OllamaUpstreamAlert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -35,6 +36,7 @@ import {
   useModels,
   useProviders,
 } from "@/hooks/useCatalog";
+import { useHealth } from "@/hooks/useHealth";
 import { useUserDefaults } from "@/hooks/useUserDefaults";
 import { api, ApiError } from "@/lib/api";
 import { inferAssetType } from "@/lib/assetType";
@@ -139,6 +141,11 @@ export default function NewRun() {
   const quickModelsQuery = useModels(provider || null, "quick");
   const deepModelsQuery = useModels(provider || null, "deep");
   const defaultsQuery = useUserDefaults();
+  // Polls /api/health every 30s. The OllamaUpstreamAlert component
+  // below renders an inline warning when provider=ollama and the
+  // upstream probe says "down", so the user gets the failure signal
+  // before submit instead of an SSE-streamed engine error ~10s after.
+  const healthQuery = useHealth();
 
   // --- Apply catalog defaults (only once each, when data first arrives) --- //
   useEffect(() => {
@@ -488,6 +495,14 @@ export default function NewRun() {
                 </Select>
               </FormControl>
             </FormItem>
+
+            {/* Ollama upstream warning — see OllamaUpstreamAlert for
+                the visibility logic. Extracted so the alert can be
+                unit-tested without mounting the full form. */}
+            <OllamaUpstreamAlert
+              provider={provider}
+              health={healthQuery.data?.ollama ?? null}
+            />
 
             {/* 5. LLM provider */}
             <FormItem>

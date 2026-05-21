@@ -29,14 +29,21 @@ def _has_real_auth() -> bool:
 
 
 @pytest.fixture
-def authed_client() -> TestClient:
+def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """A TestClient with the catalog router's auth dep stubbed to a user.
 
     Works whether or not the real ``app.auth`` exists yet: we override
     whichever ``get_current_user`` the catalog router resolved at import
     time, so the same fixture covers both the stub-in-flight and
     AUTH-landed cases.
+
+    Sets ``OLLAMA_BASE_URL`` so the env-based provider filter (added in
+    the Ollama Cloud fix) includes ollama in ``/providers``. The other
+    provider API keys come from the autouse ``_dummy_api_keys`` fixture
+    in ``conftest.py``, so openai/anthropic/google/etc. are also visible.
     """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
     from app.main import app
     from app.routers.catalog import get_current_user
     from app.schemas import AuthUser

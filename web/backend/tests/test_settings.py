@@ -366,10 +366,10 @@ def test_put_defaults_merges_partial_update_and_preserves_other_fields(
     # A second PUT setting a different field doesn't clobber llm_provider.
     second_put = settings_client.put(
         "/api/settings/defaults",
-        json={"quick_think_llm": "gpt-4o-mini"},
+        json={"quick_think_llm": "gpt-5.4-mini"},
         headers=_state_headers(),
     )
     assert second_put.status_code == 200
     merged = second_put.json()
     assert merged["llm_provider"] == "openai"
-    assert merged["quick_think_llm"] == "gpt-4o-mini"
+    assert merged["quick_think_llm"] == "gpt-5.4-mini"

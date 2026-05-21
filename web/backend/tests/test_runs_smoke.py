@@ -160,8 +160,8 @@ def _sample_request() -> dict:
         "analysts": ["market", "news"],
         "research_depth": 1,
         "llm_provider": "openai",
-        "quick_think_llm": "gpt-4o-mini",
-        "deep_think_llm": "gpt-4o",
+        "quick_think_llm": "gpt-5.4-mini",
+        "deep_think_llm": "gpt-5.4",
         "enable_checkpoint": False,
     }
 
@@ -452,8 +452,8 @@ def test_resume_happy_path_returns_new_run_id(
                     analysts=["market"],
                     research_depth=1,
                     llm_provider="openai",
-                    quick_think_llm="gpt-4o-mini",
-                    deep_think_llm="gpt-4o",
+                    quick_think_llm="gpt-5.4-mini",
+                    deep_think_llm="gpt-5.4",
                     output_language="English",
                     checkpoint_enabled=True,
                     status="interrupted",

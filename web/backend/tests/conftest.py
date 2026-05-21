@@ -72,9 +72,16 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def _dummy_api_keys(monkeypatch):
-    """Autouse dummy provider keys — same pattern as the parent repo."""
+    """Autouse dummy provider keys — same pattern as the parent repo.
+
+    Treat an empty-string env var the same as unset. Some shells/CIs
+    export ``OPENAI_API_KEY=""`` to signal "not configured"; the catalog
+    provider filter (see ``tradingagents.providers.available_providers``)
+    correctly treats empty as missing, so tests that expect a placeholder
+    would otherwise see the provider filtered out.
+    """
     for env_var in _API_KEY_ENV_VARS:
-        monkeypatch.setenv(env_var, os.environ.get(env_var, "placeholder"))
+        monkeypatch.setenv(env_var, os.environ.get(env_var) or "placeholder")
 
 
 # --------------------------------------------------------------------------- #
@@ -115,3 +122,87 @@ async def db_session(db_engine) -> AsyncIterator:
 def anyio_backend():
     """Pin pytest-anyio to asyncio (avoids trio dep in default env)."""
     return "asyncio"
+
+
+# --------------------------------------------------------------------------- #
+# Ollama-discovery fixtures — used by every test that exercises               #
+# /api/catalog/models?provider=ollama, /api/settings/defaults,                #
+# /api/runs (validation path), or /api/health (Ollama probe block).           #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _reset_ollama_cache():
+    """Clear the live-discovery cache + lock around every test.
+
+    Required because pytest-asyncio gives each test its own event loop;
+    a stale ``asyncio.Lock`` from a previous test bound to a dead loop
+    raises ``RuntimeError: <Lock> is bound to a different event loop``.
+    Also prevents cross-test cache pollution.
+    """
+    from app.services import ollama_models
+
+    ollama_models._reset_for_tests()
+    yield
+    ollama_models._reset_for_tests()
+
+
+def install_fake_httpx_ollama(
+    monkeypatch,
+    *,
+    ids: list[str] | None = None,
+    status: int = 200,
+    raise_exc: Exception | None = None,
+) -> dict:
+    """Install a fake ``httpx.AsyncClient`` for the ollama_models service.
+
+    Returns a ``dict`` recording calls — ``{"calls": int, "last_url": str|None,
+    "last_headers": dict|None}`` — so tests can assert that the right URL
+    and auth headers were sent. Single shared helper keeps the contract
+    between tests consistent: if the service ever changes how it
+    constructs the request, every test exercising the catalog/runs/health
+    flows fails at once.
+    """
+    import httpx
+
+    record: dict = {"calls": 0, "last_url": None, "last_headers": None}
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, payload: dict):
+            self.status_code = status_code
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    f"HTTP {self.status_code}", request=None, response=self
+                )
+
+        def json(self) -> dict:
+            return self._payload
+
+    class _FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return None
+
+        async def get(self, url, headers=None):
+            record["calls"] += 1
+            record["last_url"] = url
+            record["last_headers"] = dict(headers or {})
+            if raise_exc is not None:
+                raise raise_exc
+            return _FakeResponse(
+                status,
+                {"object": "list", "data": [{"id": x} for x in (ids or [])]},
+            )
+
+    monkeypatch.setattr(
+        "app.services.ollama_models.httpx.AsyncClient", _FakeClient
+    )
+    return record

@@ -53,8 +53,12 @@ async def get_models(
     ),
     _user=Depends(get_current_user),
 ) -> list[CatalogModel]:
-    """List candidate models for a provider/mode pair."""
-    return catalog_svc.list_models(provider, mode)
+    """List candidate models for a provider/mode pair.
+
+    ``ollama`` is live-discovered from the upstream Ollama / Ollama Cloud
+    instance; other providers come from the static catalog.
+    """
+    return await catalog_svc.list_models(provider, mode)
 
 
 @router.get("/analysts", response_model=list[CatalogAnalyst])

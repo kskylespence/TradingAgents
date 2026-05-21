@@ -38,6 +38,7 @@ remains in `main.py` purely as a router-import-failure fallback.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from typing import Optional
 
@@ -47,6 +48,7 @@ from sqlalchemy import text
 from .. import __version__
 from ..config import get_settings
 from ..db import get_engine
+from ..schemas import HealthResponse
 from . import register
 
 log = logging.getLogger(__name__)
@@ -102,11 +104,77 @@ def _active_run_id() -> Optional[str]:
         return None
 
 
-@router.get("", summary="Liveness + lightweight readiness probe")
-async def health() -> dict:
+async def _ollama_probe() -> Optional[dict]:
+    """Best-effort upstream Ollama reachability check.
+
+    Returns ``None`` when the active provider isn't ollama (so the
+    health response stays slim for non-ollama deployments). When ollama
+    IS active, triggers (or reuses) a cached ``list_ollama_models``
+    fetch, then reads ``last_probe_status`` to distinguish three cases:
+
+    * Upstream returned a list (possibly empty) → ``status="ok"``,
+      ``model_count`` is the real count. An account legitimately
+      provisioned with zero models still reports ``"ok"`` — that's
+      honest, and stops alert-fatigue from false "down" pages.
+    * Upstream failed (timeout / 4xx / 5xx) → ``status="down"``,
+      ``error`` carries the underlying exception repr.
+    * Never probed yet → ``status="unknown"``. Shouldn't normally
+      happen here because we trigger ``list_ollama_models()`` above,
+      but defended against for clarity.
+
+    Crucially: even when Ollama is unreachable, the OUTER ``status``
+    stays ``"ok"`` (Coolify must not restart the container for an
+    upstream LLM blip — same invariant we apply to a DB-down condition
+    only flipping ``db: "down"`` while the outer stays 200).
+    """
+    provider = os.environ.get("TRADINGAGENTS_LLM_PROVIDER", "").lower()
+    if provider != "ollama":
+        return None
+
+    url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+
+    from ..services.ollama_models import last_probe_status, list_ollama_models
+
+    # Trigger (or reuse) a fetch so ``last_probe_status`` has something to
+    # report. ``list_ollama_models`` is contractually never-raises.
+    models = await list_ollama_models()
+    status, error = last_probe_status()
+
+    if status == "ok":
+        return {
+            "status": "ok",
+            "url": url,
+            "model_count": len(models),
+            "error": None,
+        }
+    if status == "down":
+        return {
+            "status": "down",
+            "url": url,
+            "model_count": None,
+            "error": error,
+        }
+    # status == "unknown" — list_ollama_models() didn't even record an
+    # attempt. The only way to land here is if the cache was returning a
+    # last-good value (so no fetch happened) and the per-process
+    # _last_attempt entry was cleared between fetches. Surface honestly.
+    return {
+        "status": "unknown",
+        "url": url,
+        "model_count": None,
+        "error": None,
+    }
+
+
+@router.get(
+    "",
+    summary="Liveness + lightweight readiness probe",
+    response_model=HealthResponse,
+)
+async def health() -> HealthResponse:
     """Public health endpoint. See module docstring for full contract."""
-    db_status = "ok"
-    overall = "ok"
+    db_status: str = "ok"
+    overall: str = "ok"
     try:
         await _check_db()
     except Exception:
@@ -114,13 +182,19 @@ async def health() -> dict:
         db_status = "down"
         overall = "degraded"
 
-    return {
-        "status": overall,
-        "version": __version__,
-        "db": db_status,
-        "disk_free_mb": _disk_free_mb(),
-        "active_run_id": _active_run_id(),
-    }
+    ollama = await _ollama_probe()
+    # Note: deliberately NOT flipping `overall` to "degraded" when
+    # Ollama is down. Coolify treats `status != "ok"` as a signal to
+    # restart — an upstream LLM outage is not a container problem.
+
+    return HealthResponse(
+        status=overall,  # type: ignore[arg-type]  # Literal narrowing from "ok"/"degraded"
+        version=__version__,
+        db=db_status,  # type: ignore[arg-type]
+        disk_free_mb=_disk_free_mb(),
+        active_run_id=_active_run_id(),
+        ollama=ollama,  # type: ignore[arg-type]
+    )
 
 
 register(router)

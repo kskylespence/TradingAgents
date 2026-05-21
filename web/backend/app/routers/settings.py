@@ -16,10 +16,18 @@ Safety properties (asserted by tests):
   ``api_keys`` from a typo or a malicious client.
 - Defaults uses a true partial merge (``exclude_unset=True``) so a PUT
   with only one field doesn't clobber siblings.
+- ``GET /defaults`` auto-heals stale model names: if the saved
+  quick/deep model is no longer in the live catalog for the saved
+  provider, the response returns ``null`` for that field (the DB row is
+  left untouched — the next PUT overwrites cleanly).
+- ``PUT /defaults`` validates provider+model against the live catalog
+  and returns 400 with the available list if mismatched. ``null`` is
+  accepted (that's how auto-heal stores its "I don't know" state).
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -27,6 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import catalog as catalog_svc
 from app import crypto
 from app.db import get_session
 from app.models import ApiKey as ApiKeyModel
@@ -35,6 +44,8 @@ from app.schemas import ApiKeyStatus, UserDefaults
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 
 from . import register
+
+log = logging.getLogger(__name__)
 
 
 # --- Auth dependency (soft dep on the AUTH team) --------------------------- #
@@ -204,14 +215,76 @@ def _row_to_defaults(row: UserDefaultsModel | None) -> UserDefaults:
     )
 
 
+async def _live_model_ids(provider: str, mode: str) -> set[str]:
+    """Return the set of valid model IDs for (provider, mode) per the live catalog.
+
+    The catalog returns ``CatalogModel`` entries; we project out ``id``.
+    The synthetic ``__custom__`` entry (for providers that accept any
+    typed model ID) is intentionally treated as "anything goes" by the
+    caller — see ``_is_model_valid``.
+    """
+    models = await catalog_svc.list_models(provider, mode)  # type: ignore[arg-type]
+    return {m.id for m in models}
+
+
+async def _is_model_valid(provider: str | None, model: str | None, mode: str) -> bool:
+    """True iff ``model`` is a valid choice for ``provider`` per the live catalog.
+
+    Returns True for ``None`` (clearing is always allowed) and for ``None``
+    provider (we can't validate without a provider — let it through and
+    rely on the runs router's defense-in-depth check before engine launch).
+
+    Providers whose catalog still includes the ``__custom__`` sentinel
+    accept any model ID — that's the "Custom model ID" affordance for
+    openrouter / azure / deepseek-style providers.
+    """
+    if model is None or provider is None:
+        return True
+    ids = await _live_model_ids(provider, mode)
+    if "__custom__" in ids:
+        return True
+    return model in ids
+
+
 @router.get("/defaults", response_model=UserDefaults)
 async def get_defaults(
     db: AsyncSession = Depends(get_session),
     _user=Depends(get_current_user),
 ) -> UserDefaults:
-    """Return the singleton ``user_defaults`` row, or schema defaults if absent."""
+    """Return the singleton ``user_defaults`` row with stale models auto-healed.
+
+    If the saved ``quick_think_llm`` / ``deep_think_llm`` is no longer in
+    the live catalog for the saved ``llm_provider``, that field is
+    returned as ``None``. The DB row is NOT mutated — the next PUT
+    overwrites cleanly. Without ``llm_provider`` we can't validate, so
+    the saved values are returned as-is.
+    """
     row = await db.get(UserDefaultsModel, 1)
-    return _row_to_defaults(row)
+    defaults = _row_to_defaults(row)
+
+    provider = defaults.llm_provider
+    if provider is None:
+        return defaults
+
+    if defaults.quick_think_llm is not None and not await _is_model_valid(
+        provider, defaults.quick_think_llm, "quick"
+    ):
+        log.info(
+            "settings.defaults.autoheal_quick_stale",
+            extra={"provider": provider, "stale_model": defaults.quick_think_llm},
+        )
+        defaults = defaults.model_copy(update={"quick_think_llm": None})
+
+    if defaults.deep_think_llm is not None and not await _is_model_valid(
+        provider, defaults.deep_think_llm, "deep"
+    ):
+        log.info(
+            "settings.defaults.autoheal_deep_stale",
+            extra={"provider": provider, "stale_model": defaults.deep_think_llm},
+        )
+        defaults = defaults.model_copy(update={"deep_think_llm": None})
+
+    return defaults
 
 
 @router.put("/defaults", response_model=UserDefaults)
@@ -226,18 +299,52 @@ async def put_defaults(
     send are left untouched on the row — a PUT with just ``llm_provider``
     must not wipe ``quick_think_llm`` to None.
 
-    Caveat: because ``UserDefaults`` has a non-optional ``enable_checkpoint``
-    with a default of ``True``, that field is always present in the parsed
-    body unless the client explicitly omits it via ``exclude_unset`` on
-    their end. Pydantic v2 considers a default-filled field "set" when
-    constructing from a dict; we mitigate by checking the raw dict against
-    the known field set so a default-filled value still merges cleanly.
+    **Model validation:** any non-null quick/deep model in the request
+    must be in the live catalog for whichever provider ends up effective
+    (sent provider, else current row provider). Mismatches return 400
+    with the available models in ``detail``. ``null`` clears are always
+    allowed (auto-heal uses this).
     """
     # Use model_fields_set so explicit "I sent enable_checkpoint=False" is
     # honored but a Pydantic-applied default is not treated as user intent.
     sent = body.model_dump(exclude_unset=True)
 
-    row = await db.get(UserDefaultsModel, 1)
+    # --- Validate quick/deep models against the live catalog --------------- #
+    existing_row = await db.get(UserDefaultsModel, 1)
+    effective_provider: str | None = (
+        sent.get("llm_provider")
+        if "llm_provider" in sent
+        else (existing_row.llm_provider if existing_row is not None else None)
+    )
+
+    for field, mode in (("quick_think_llm", "quick"), ("deep_think_llm", "deep")):
+        if field not in sent:
+            continue
+        value = sent[field]
+        if value is None:
+            continue  # Clearing is always OK.
+        if effective_provider is None:
+            # No provider to validate against — refuse rather than save a
+            # value with no semantic anchor.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cannot save {field}={value!r} without an llm_provider. "
+                    "Include llm_provider in the PUT body."
+                ),
+            )
+        if not await _is_model_valid(effective_provider, value, mode):
+            ids = sorted(await _live_model_ids(effective_provider, mode))
+            available = ", ".join(ids) if ids else "(no models available)"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Model {value!r} is not available on provider "
+                    f"{effective_provider!r}. Available: {available}"
+                ),
+            )
+
+    row = existing_row
     if row is None:
         # Build the row from defaults + sent overrides. The Pydantic
         # ``UserDefaults()`` baseline gives us ``enable_checkpoint=True``
