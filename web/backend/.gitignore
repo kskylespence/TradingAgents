@@ -1,0 +1,5 @@
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+test_migration.db

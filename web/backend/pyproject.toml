@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingagents-web-backend"
+version = "0.1.0"
+description = "FastAPI backend for the TradingAgents Web UI."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # Path-dep on the parent tradingagents package. Pip cannot resolve this
+    # from a name in the registry; this declaration is a documentation
+    # placeholder. See dev-install.md for the install dance, or use the
+    # uv source mapping below.
+    "tradingagents",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sse-starlette>=2.1",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "passlib[bcrypt]>=1.7.4",
+    "pyjwt>=2.10",
+    "cryptography>=44",
+    "python-multipart>=0.0.20",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-postgresql>=6.1",
+    "anyio>=4.6",
+    "aiosqlite>=0.20",
+    "greenlet>=3.0",
+]
+
+# When using uv (https://docs.astral.sh/uv/), this lets the path-dep resolve
+# automatically. Plain pip users follow dev-install.md.
+[tool.uv.sources]
+tradingagents = { path = "..", editable = true }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `-p no:postgresql` disables the pytest-postgresql plugin by default; on
+# Windows it tries to import psycopg's libpq at collection time, which
+# fails without a system libpq install. Tests that need real Postgres
+# should re-enable the plugin via their own conftest or `-p postgresql`.
+addopts = "-ra --strict-markers -p no:postgresql"
+asyncio_mode = "auto"
+markers = [
+    "unit: fast isolated unit tests",
+    "integration: tests requiring external services",
+    "smoke: quick sanity-check tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
