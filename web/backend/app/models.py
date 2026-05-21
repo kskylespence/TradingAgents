@@ -168,8 +168,12 @@ class LoginAttempt(Base):
 
     __tablename__ = "login_attempts"
 
-    # No formal primary key; use a surrogate to satisfy ORM requirements.
-    # The plan's table has none, so we add an autoincrement id only for ORM use.
+    # Surrogate PK required by the ORM so SQLAlchemy can emit
+    # INSERT ... RETURNING id on each rate-limit record. The column is
+    # added by Alembic revision 0002 (the original 0001 plan omitted it,
+    # which crashed every login on Postgres until we caught it in
+    # production — tests use Base.metadata.create_all and never exercised
+    # the migration path).
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ip: Mapped[str] = mapped_column(InetType, nullable=False)
     attempted_at: Mapped[datetime] = mapped_column(
