@@ -13,12 +13,15 @@ WORKDIR /fe
 COPY web/frontend/package*.json ./
 RUN npm ci
 COPY web/frontend ./
-# Verify the build actually produced an index.html. BuildKit has cached
-# a /fe/dist-less layer in past Coolify deploys when an earlier
-# `npm run build` exited non-zero; the post-build `test` step makes
-# that failure loud rather than silently passing the cache forward
-# into the COPY --from=fe step.
-RUN npm run build && test -s /fe/dist/index.html
+# Vite writes to /backend/app/static/, NOT /fe/dist. That's because
+# vite.config.ts:25 uses `outDir: path.resolve(__dirname, "../backend/app/static")`
+# — a path that's convenient for local dev (the build lands directly
+# in FastAPI's static dir, no copy needed) but resolves to an absolute
+# path inside the fe stage in Docker. Don't change the vite config;
+# just track its output location here. The `test` step asserts the
+# build actually produced index.html so a future regression fails
+# loud rather than silently breaking the next COPY --from=fe step.
+RUN npm run build && test -s /backend/app/static/index.html
 
 # ---- python runtime ----
 FROM python:3.12-slim AS be
@@ -35,7 +38,7 @@ COPY web/backend ./web/backend
 # cannot find a `tradingagents` distribution and the build fails.
 RUN pip install --no-cache-dir . \
  && pip install --no-cache-dir ./web/backend
-COPY --from=fe /fe/dist /app/web/backend/app/static
+COPY --from=fe /backend/app/static /app/web/backend/app/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENV PYTHONUNBUFFERED=1
