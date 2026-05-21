@@ -7,8 +7,14 @@ from dotenv import find_dotenv, set_key
 from rich.console import Console
 
 from cli.models import AnalystType, AssetType
+from tradingagents.asset_types import (
+    CRYPTO_SUFFIXES,
+    detect_asset_type,
+    filter_analysts_for_asset_type,
+)
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
+from tradingagents.providers import PROVIDERS as _PROVIDER_SPECS, get_ollama_base_url
 
 console = Console()
 
@@ -20,9 +26,6 @@ ANALYST_ORDER = [
     ("News Analyst", AnalystType.NEWS),
     ("Fundamentals Analyst", AnalystType.FUNDAMENTALS),
 ]
-
-CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
-
 
 def get_ticker() -> str:
     """Prompt the user to enter a ticker symbol."""
@@ -47,25 +50,6 @@ def get_ticker() -> str:
 def normalize_ticker_symbol(ticker: str) -> str:
     """Normalize ticker input while preserving exchange suffixes."""
     return ticker.strip().upper()
-
-
-def detect_asset_type(ticker: str) -> AssetType:
-    normalized_ticker = ticker.strip().upper()
-    if normalized_ticker.endswith(CRYPTO_SUFFIXES):
-        return AssetType.CRYPTO
-    return AssetType.STOCK
-
-
-def filter_analysts_for_asset_type(
-    analysts: List[AnalystType], asset_type: AssetType
-) -> List[AnalystType]:
-    if asset_type != AssetType.CRYPTO:
-        return analysts
-    return [
-        analyst
-        for analyst in analysts
-        if analyst != AnalystType.FUNDAMENTALS
-    ]
 
 
 def get_analysis_date() -> str:
@@ -261,30 +245,25 @@ def select_deep_thinking_agent(provider) -> str:
 
 def select_llm_provider() -> tuple[str, str | None]:
     """Select the LLM provider and its API endpoint."""
-    # Ollama users can point at a remote ollama-serve via OLLAMA_BASE_URL
-    # (convention from the broader Ollama ecosystem); falls back to the
-    # localhost default when unset.
-    ollama_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
-    # (display_name, provider_key, base_url)
-    PROVIDERS = [
-        ("OpenAI", "openai", "https://api.openai.com/v1"),
-        ("Google", "google", None),
-        ("Anthropic", "anthropic", "https://api.anthropic.com/"),
-        ("xAI", "xai", "https://api.x.ai/v1"),
-        ("DeepSeek", "deepseek", "https://api.deepseek.com"),
-        ("Qwen", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
-        ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
-        ("MiniMax", "minimax", "https://api.minimax.io/v1"),
-        ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
-        ("Azure OpenAI", "azure", None),
-        ("Ollama", "ollama", ollama_url),
-    ]
+    # Regional variants (qwen-cn, glm-cn, minimax-cn) are reached via a
+    # secondary region prompt to keep the main dropdown short.
+    _PRIMARY_PROVIDER_KEYS = (
+        "openai", "google", "anthropic", "xai", "deepseek",
+        "qwen", "glm", "minimax", "openrouter", "azure", "ollama",
+    )
+    by_key = {spec.key: spec for spec in _PROVIDER_SPECS}
+    ollama_url = get_ollama_base_url()
+    choices_data: list[tuple[str, str, str | None]] = []
+    for key in _PRIMARY_PROVIDER_KEYS:
+        spec = by_key[key]
+        url = ollama_url if key == "ollama" else spec.default_base_url
+        choices_data.append((spec.display, spec.key, url))
 
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
             questionary.Choice(display, value=(provider_key, url))
-            for display, provider_key, url in PROVIDERS
+            for display, provider_key, url in choices_data
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
