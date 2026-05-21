@@ -1,35 +1,49 @@
+# TradingAgents — local development compose stack.
+#
+# Brings up a Postgres 16 instance plus the FastAPI app image built from the
+# repo-root Dockerfile. Coolify deployments do NOT use this file; production
+# uses Neon for Postgres and Coolify-managed persistent volumes.
+#
+# Usage:
+#   cp .env.local.example .env.local   # fill in secrets first
+#   docker compose up --build
+#
+# Licensed under the Apache License, Version 2.0. See LICENSE for terms.
+
 services:
-  tradingagents:
-    build: .
-    env_file:
-      - .env
-    volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
-    tty: true
-    stdin_open: true
-
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    profiles:
-      - ollama
-
-  tradingagents-ollama:
-    build: .
-    env_file:
-      - .env
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      - LLM_PROVIDER=ollama
+      POSTGRES_USER: tradingagents
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: tradingagents
+    ports:
+      - "5432:5432"
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tradingagents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
     depends_on:
-      - ollama
-    tty: true
-    stdin_open: true
-    profiles:
-      - ollama
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.local
+    environment:
+      # Override .env.local so the app always talks to the compose db service.
+      DATABASE_URL: "postgresql+asyncpg://tradingagents:devpassword@db:5432/tradingagents"
+    volumes:
+      - appdata:/data/tradingagents
 
 volumes:
-  tradingagents_data:
-  ollama_data:
+  pgdata:
+  appdata:
