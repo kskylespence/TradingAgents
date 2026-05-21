@@ -218,7 +218,13 @@ class OpenAIClient(BaseLLMClient):
                         f"(e.g. add {api_key_env}=your_key to your .env file)."
                     )
             else:
-                llm_kwargs["api_key"] = "ollama"
+                # Ollama: a local ollama-serve needs no auth — ChatOpenAI still
+                # requires a non-empty api_key, so we send the literal "ollama"
+                # as a placeholder. Ollama Cloud, by contrast, authenticates via
+                # a Bearer token; when OLLAMA_API_KEY is set we forward it so
+                # the same provider path covers both local and Cloud usage
+                # (paired with OLLAMA_BASE_URL=https://ollama.com/v1).
+                llm_kwargs["api_key"] = os.environ.get("OLLAMA_API_KEY") or "ollama"
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
