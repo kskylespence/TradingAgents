@@ -1,0 +1,6 @@
+# Build artifacts emitted by `web/frontend/npm run build` and copied in at
+# image-build time. We only commit `.gitkeep` (and this file) so the
+# directory exists in git.
+*
+!.gitignore
+!.gitkeep
