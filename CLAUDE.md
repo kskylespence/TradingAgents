@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Nested guidance.** When working under `web/backend/` or `web/frontend/`, Claude Code also loads `web/backend/CLAUDE.md` / `web/frontend/CLAUDE.md` respectively. Treat them as authoritative for those subtrees — they cover the auto-discovery registry pattern, security invariants, lazy-lock convention, and the SSE/reducer contract that don't apply to the rest of the repo.
+
 ## What this repo is
 
 TradingAgents (package name `tradingagents`, local repo folder `HedgeFund`) is a LangGraph-based multi-agent LLM trading framework. Specialized agents (Analysts → Researchers → Research Manager → Trader → Risk Debaters → Portfolio Manager) collaborate to produce a Buy/Overweight/Hold/Underweight/Sell recommendation for a ticker on a given date. It is a research framework — not financial advice and not a backtester runtime.
