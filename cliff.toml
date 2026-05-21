@@ -1,0 +1,74 @@
+# git-cliff configuration for the FORK changelog (CHANGELOG.fork.md).
+#
+# Design decisions worth preserving:
+#
+# 1. Tag pattern matches ONLY fork tags `v<upstream>-hf.<N>` (e.g. v0.2.5-hf.1),
+#    and `skip_tags` actively drops plain upstream tags (e.g. v0.2.5) so they
+#    don't terminate a fork-tag range. The two tag namespaces coexist on the
+#    same history; without `skip_tags` an upstream tag landing between two
+#    fork tags would chop the release range in half.
+#
+# 2. No `include_paths` / `exclude_paths`. Fork-specific commits legitimately
+#    touch the upstream `tradingagents/` tree (e.g. the Ollama API key env-var
+#    change, LLM provider fixes #826/#831). A path filter would silently
+#    drop them. Scoping is done by the caller via the commit range
+#    `v<prev>-hf.N..HEAD`, NOT by path.
+
+[changelog]
+header = """
+# Fork Changelog
+
+All notable changes to **this fork** (`kskylespence/TradingAgents`) are documented in this file.
+The companion file [`CHANGELOG.md`](./CHANGELOG.md) is an unmodified mirror of the upstream
+[`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents) changelog and
+is not edited here.
+
+The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to a fork-versioning scheme `<upstream>+hf.<N>` (PEP 440 local
+segment) with git tags `v<upstream>-hf.<N>`.
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] — {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+postprocessors = []
+render_always = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_preprocessors = []
+commit_parsers = [
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^refactor", group = "Changed" },
+    { message = "^perf", group = "Changed" },
+    { message = "^security", group = "Security" },
+    { message = "^revert", group = "Changed" },
+    { message = "^chore\\(upstream\\)", group = "Upstream" },
+    { message = "^chore\\(release\\)", skip = true },
+    { message = "^chore", skip = true },
+    { message = "^docs", skip = true },
+    { message = "^test", skip = true },
+    { message = "^Merge ", skip = true },
+]
+protect_breaking_commits = false
+filter_commits = true
+tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+-hf\\.[0-9]+"
+skip_tags = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+ignore_tags = ""
+topo_order = false
+sort_commits = "newest"

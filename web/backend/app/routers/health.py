@@ -44,6 +44,7 @@ from typing import Optional
 from fastapi import APIRouter
 from sqlalchemy import text
 
+from .. import __version__
 from ..config import get_settings
 from ..db import get_engine
 from . import register
@@ -115,6 +116,7 @@ async def health() -> dict:
 
     return {
         "status": overall,
+        "version": __version__,
         "db": db_status,
         "disk_free_mb": _disk_free_mb(),
         "active_run_id": _active_run_id(),
