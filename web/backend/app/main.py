@@ -24,14 +24,11 @@ from .db import dispose_engine
 from .logging_config import configure_logging
 from . import routers as routers_registry
 
-# --- Router imports ---
-# Each downstream task agent (auth=#3, catalog/health=#4, runs=#5,
-# settings/history=#6, announcements) creates app/routers/<name>.py and
-# calls `routers.register(router)` at module scope. Uncomment the import
-# here as those land. Order doesn't matter — registration is just an
-# append to a list.
-#
-# from .routers import auth, catalog, health, runs, settings, history, announcements  # noqa: F401
+# --- Router auto-discovery ---
+# `app.routers` auto-imports every submodule on package load (see
+# routers/__init__.py:_autoload). Each module calls `register(router)` at
+# module scope, populating `routers_registry.ROUTERS`. Parallel agents can
+# therefore add new router files without touching this file.
 
 
 log = logging.getLogger(__name__)

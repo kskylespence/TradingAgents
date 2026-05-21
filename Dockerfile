@@ -25,7 +25,11 @@ COPY pyproject.toml .
 COPY tradingagents ./tradingagents
 COPY cli ./cli
 COPY web/backend ./web/backend
-RUN pip install --no-cache-dir ./web/backend
+# Install the parent `tradingagents` package first so the backend's
+# path-dependency on it resolves. Without this, `pip install ./web/backend`
+# cannot find a `tradingagents` distribution and the build fails.
+RUN pip install --no-cache-dir . \
+ && pip install --no-cache-dir ./web/backend
 COPY --from=fe /fe/dist /app/web/backend/app/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

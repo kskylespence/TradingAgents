@@ -1,4 +1,9 @@
-"""Router registry — Phase 2 agents append their `APIRouter` here.
+"""Router registry with auto-discovery.
+
+Any submodule added to `app/routers/` (whose name does not start with `_`)
+is automatically imported when this package is imported. Each router module
+calls `register(router)` at module scope, so the side-effect of the import
+populates `ROUTERS` without any further wiring in `main.py`.
 
 To add a router::
 
@@ -13,14 +18,14 @@ To add a router::
 
     register(router)
 
-Then add `from .routers import my_router  # noqa: F401` to app/main.py so
-the module is imported (which triggers `register()`).
-
-`main.py` iterates `ROUTERS` after all imports and `include_router`s each.
+That's it — no edits to `main.py` or this file are required. Parallel
+agents authoring different routers therefore never touch shared files.
 """
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from typing import List
 
 from fastapi import APIRouter
@@ -31,6 +36,22 @@ ROUTERS: List[APIRouter] = []
 def register(router: APIRouter) -> None:
     """Append a router to the registry; main.py will include it under /api."""
     ROUTERS.append(router)
+
+
+def _autoload() -> None:
+    """Import every submodule of this package so registrations fire.
+
+    Modules whose names start with `_` (e.g. `_imports`) are skipped, by
+    convention reserved for private helpers that should not register
+    routes themselves.
+    """
+    for _finder, name, _ispkg in pkgutil.iter_modules(__path__):
+        if name.startswith("_"):
+            continue
+        importlib.import_module(f"{__name__}.{name}")
+
+
+_autoload()
 
 
 __all__ = ["ROUTERS", "register"]
