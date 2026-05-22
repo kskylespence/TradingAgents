@@ -145,6 +145,30 @@ If anything raises in step 6: `run_failed` is published, the row flips
 to `failed`. If the cancellation event is set (via
 `POST /api/runs/:id/cancel`): `run_cancelled` is published instead.
 
+Before an exception can reach step 6, it has to escape **two layers of
+retry**:
+
+1. **OpenAI SDK transport retries**, configured by
+   `tradingagents.llm_clients.openai_client.OpenAIClient.get_llm()` —
+   5 retries for cloud providers, 2 for native openai, exponential
+   backoff with jitter (~32 s total envelope for cloud). Catches
+   transient `5xx` from the HTTP layer before they become Python
+   exceptions.
+2. **LangGraph node retries**, configured in
+   `tradingagents.graph.trading_graph._TRANSIENT_RETRY_POLICY` and
+   stamped on every node via `_attach_retry_policy(workflow)`. 3 total
+   attempts (initial + 2 retries) with 8 s / 16 s backoff. Catches
+   `openai.InternalServerError`, `openai.APITimeoutError`,
+   `openai.APIConnectionError`, and `httpx.RemoteProtocolError` that
+   still escape the SDK layer.
+
+Only an exception that survives BOTH layers turns into a `failed`
+status. The persisted `error_message` is the human-readable string
+from
+`web/backend/app/services/run_service.py:_format_engine_error(exc, provider)`
+— the helper names the provider, surfaces any upstream `ref:`
+correlation ID, and suggests a next action per exception class.
+
 ## Crash-recovery contract
 
 Two layers:
@@ -172,6 +196,15 @@ The frontend reads `resumable` from `GET /api/runs/:id` and shows a
 same `(ticker, date)` so the LangGraph thread_id collides → the
 engine picks up from the checkpoint. The response is
 `{run_id, parent_run_id}` and the frontend navigates to the new run.
+
+For `failed` and `cancelled` runs (which have no resumable
+checkpoint — either it never landed or `checkpoint_enabled` was
+`False`), the frontend shows a **Retry** button instead.
+`POST /api/runs/:id/retry` reconstructs a fresh `RunRequest` from the
+parent's persisted columns and submits it as a brand-new run — the
+graph starts from scratch, not from a checkpoint. Same
+`{run_id, parent_run_id}` response shape as `/resume`. See
+`web/docs/api.md` "Retry contract" for the violation matrix.
 
 ## Persistence at a glance
 

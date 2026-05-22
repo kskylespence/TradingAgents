@@ -177,6 +177,7 @@ Transitions per endpoint:
 | (lifecycle task) | `queued -> running` once lock acquired; eventually flips to one of the four terminal states |
 | `POST /api/runs/:id/cancel` | sets the per-run `cancel_event`; the next chunk-boundary flip is `cancelled` |
 | `POST /api/runs/:id/resume` | inserts a NEW `queued` run; the parent row stays `interrupted` |
+| `POST /api/runs/:id/retry` | inserts a NEW `queued` run reusing the parent's persisted params; allowed only when parent is `failed` or `cancelled` |
 | startup `crash_recovery` hook | any orphan `running` -> `interrupted`; emits a terminal `run_failed` event |
 
 `interrupted` is the only state a run can be in without the lifecycle
@@ -315,6 +316,42 @@ LangGraph `thread_id` is a hash of that pair, so the SqliteSaver
 recognises the existing checkpoint and resumes from the last
 successful node instead of starting from scratch. The frontend
 navigates to the new `run_id` and subscribes to its SSE stream.
+
+## Retry contract
+
+`POST /api/runs/:id/retry` is the recovery affordance for runs that
+ended **without** a usable checkpoint — typically because they died
+inside the first analyst before any checkpoint was written, or because
+`checkpoint_enabled=False` was used. It reconstructs a fresh
+`RunRequest` from the parent row's persisted columns and delegates to
+the same submit path as `POST /api/runs` (including
+`_validate_models_against_catalog`).
+
+Allowed only when parent `status in {"failed", "cancelled"}`.
+`interrupted` already has `/resume`; `completed` / `running` / `queued`
+are not retry-shaped.
+
+Violation matrix:
+
+| Condition | Response |
+|---|---|
+| Parent not found | `404 {"detail": "Run not found"}` |
+| Parent not `failed`/`cancelled` | `400 {"detail": "Cannot retry run in status '<status>'"}` |
+| Catalog validation fails (model removed, provider unconfigured) | `400` with the same envelope `POST /api/runs` returns |
+| Another run is in progress | `409 {"detail": "Another run is in progress"}` (raised by `start_run`) |
+| All pass | `200 {"run_id": "...", "parent_run_id": "..."}` |
+
+Unlike `/resume`, the new run does NOT share a `thread_id` with the
+parent — it starts the graph from scratch. That's the whole point:
+the parent's state was either incomplete (no checkpoint) or
+unrecoverable (transient upstream error), so we want a clean re-run
+with the same params. The frontend navigates to the new `run_id` and
+subscribes to its SSE stream.
+
+The Retry button in `RunView.tsx` renders in two places when status is
+`failed`/`cancelled`: the header alongside Cancel/Resume, and inside
+the error-message banner so the affordance sits visually adjacent to
+the failure reason.
 
 ## Report download
 
