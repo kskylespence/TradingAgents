@@ -107,6 +107,33 @@ export default function RunView() {
     },
   });
 
+  // --- Retry mutation ---
+  // Sibling-run from a failed/cancelled parent. Backend reconstructs the
+  // RunRequest from the parent's persisted columns and queues a fresh
+  // run — same shape as /resume, but no checkpoint dependency.
+  const retryMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ run_id: string; parent_run_id: string }>(
+        `/api/runs/${runId}/retry`,
+      ),
+    onSuccess: (data) => {
+      toast({
+        title: "Retry queued",
+        description: "Following the new run.",
+      });
+      navigate(`/runs/${data.run_id}`);
+    },
+    onError: (err) => {
+      toast({
+        title: "Retry failed",
+        description:
+          err instanceof ApiError ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+  const canRetry = runStatus === "failed" || runStatus === "cancelled";
+
   if (!runId) {
     return <NotFound />;
   }
@@ -170,13 +197,36 @@ export default function RunView() {
                 {resumeMutation.isPending ? "Resuming…" : "Resume"}
               </Button>
             ) : null}
+            {canRetry ? (
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={() => retryMutation.mutate()}
+                disabled={retryMutation.isPending}
+              >
+                {retryMutation.isPending ? "Retrying…" : "Retry"}
+              </Button>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <ProgressBar value={progress} status={runStatus} />
           {errorMessage ? (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {errorMessage}
+            <div className="flex flex-col gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:flex-row sm:items-start sm:justify-between">
+              <span className="flex-1">{errorMessage}</span>
+              {canRetry ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => retryMutation.mutate()}
+                  disabled={retryMutation.isPending}
+                >
+                  {retryMutation.isPending ? "Retrying…" : "Retry"}
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </CardContent>

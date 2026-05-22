@@ -16,6 +16,27 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **One-click Retry button on failed and cancelled runs.** Until now,
+  every transient upstream LLM failure forced the user back to
+  `NewRun.tsx` to re-fill ticker, date, provider, models, analysts,
+  depth, language, checkpoint, and thinking-config from scratch. The
+  new `POST /api/runs/{id}/retry` endpoint reconstructs a `RunRequest`
+  from the parent row's persisted columns and delegates to the same
+  submit path as `POST /api/runs` (including catalog re-validation),
+  returning `{run_id, parent_run_id}` — same response shape as
+  `/resume`. Two button placements in
+  `web/frontend/src/routes/RunView.tsx` for two reading paths: primary
+  in the header alongside Cancel/Resume, secondary inside the error
+  banner so the affordance sits visually adjacent to the failure
+  reason. Surfaces only when status is `failed` or `cancelled`
+  (`completed` / `running` / `queued` aren't retry-shaped;
+  `interrupted` already has `/resume`). Triggered by run
+  `95629918-f57a-4bc3-a95f-16d5f66318e2`, where an Ollama Cloud
+  `ref: fd44ca4b-...` HTTP 500 dead-ended a CRM analysis and the user
+  had to re-fill the entire form. Tests:
+  `web/backend/tests/test_runs_retry.py` (7),
+  `web/frontend/src/__tests__/RunView.retry.test.tsx` (4).
+
 - **`ADMIN_PASSWORD_HASH_B64` env-var fallback.** Coolify (and likely
   other PaaS env-var stores) silently interpolate `$<name>` references
   inside values *regardless* of their "literal" / "multiline" flags.
@@ -33,6 +54,81 @@ for the per-deploy cut workflow.
   `test_settings_rejects_malformed_admin_password_hash_b64`.
 
 ### Changed
+
+- **Per-provider `max_retries` defaults for OpenAI-compatible LLM
+  clients.** The vendored OpenAI SDK defaults to `max_retries=2` with
+  sub-second backoff — 3 total attempts inside ~2 seconds, useless
+  against any sustained provider transient. (The Ollama Cloud HTTP 500
+  that triggered this hardening pass exhausted all three attempts in
+  1.75 seconds.) Cloud OpenAI-compatible providers (xai, deepseek,
+  qwen*, glm*, minimax*, ollama, openrouter) now default to `5`
+  retries — a ~32-second envelope with exponential backoff and jitter,
+  matching the order-of-magnitude transient-LLM recovery window seen
+  in practice. Native `openai` stays at `2` because OpenAI's own infra
+  is reliable and extra retries amplify rate-limit penalties.
+  `TRADINGAGENTS_LLM_MAX_RETRIES` (integer) overrides per-provider
+  defaults at the env layer; explicit `max_retries` kwarg still wins.
+  Precedence: kwarg > env var > per-provider default.
+
+- **Explicit HTTP timeout on chat completions.** Chat-completions
+  previously inherited httpx's 10-minute default, which let a hung
+  upstream pin the `GLOBAL_RUN_LOCK` (single-concurrent-run lock) for
+  the full window before the run dies. The new default is
+  `httpx.Timeout(connect=10s, read=120s, write=10s, pool=10s)`. The
+  120-second read is generous enough for thinking-model first-token
+  latency but bounded so a hung upstream releases the run lock instead
+  of pinning the app for minutes. `TRADINGAGENTS_LLM_READ_TIMEOUT`
+  (seconds) replaces only the read field; explicit `timeout` kwarg
+  replaces the whole `Timeout` object.
+
+- **Node-level `RetryPolicy` on every LangGraph node.** A second
+  resilience layer on top of the SDK retries above. LangGraph v1
+  attaches retry policies per node (the `retry_policy` field on
+  `StateNodeSpec`), not on `compile()` —
+  `tradingagents/graph/trading_graph.py` mutates `workflow.nodes` to
+  stamp a shared `_TRANSIENT_RETRY_POLICY` (max_attempts=3,
+  initial_interval=8s, backoff_factor=2.0, jitter=True) on every node
+  at all three compile sites (no-checkpointer, with-checkpointer,
+  cleanup recompile). Catches `openai.InternalServerError`,
+  `openai.APITimeoutError`, `openai.APIConnectionError`, and
+  `httpx.RemoteProtocolError`. Why both layers: SDK retries handle
+  transient *request* failures fast (≤32 s envelope); graph retries
+  handle transient *node-execution* failures — including those that
+  bubble past the SDK as raised exceptions — with the longer 8–16 s
+  spacing that catches recoveries the tighter SDK window misses. Two
+  layers cover different transient profiles without over-doubling
+  cost (graph retries reuse the same node input; SDK retries reuse
+  the same HTTP payload).
+
+- **Engine errors are classified into operator-actionable strings
+  before being persisted to `runs.error_message`.** The previous
+  catch-site format `f"{type(exc).__name__}: {exc}"` produced a
+  stack-trace-shaped string (`InternalServerError: Error code: 500 -
+  {'error': 'Internal Server Error (ref: fd44ca4b-...)'}`) that gave
+  the user no usable next step. The new
+  `_format_engine_error(exc, provider)` helper in
+  `web/backend/app/services/run_service.py` recognises the OpenAI SDK
+  exception hierarchy and renders complete sentences naming the
+  provider, surfacing the upstream `ref:` correlation ID, and
+  suggesting next actions: `InternalServerError` / generic 5xx →
+  *"Upstream provider error (ollama, HTTP 500). This is usually
+  transient. Reference: fd44ca4b-... Click Retry below, or pick a
+  different model if it persists."*; `APITimeoutError` → *"timed out
+  … try a smaller/faster model"*; `APIConnectionError` /
+  `httpx.ConnectError` → *"Could not reach … verify network and
+  base URL"*; `AuthenticationError` → *"Authentication failed …
+  verify the API key environment variable"*; `RateLimitError` →
+  *"Rate limited … wait and Retry"*; `BadRequestError` → preserves
+  full upstream detail (it's usually a config bug needing the detail
+  to fix). Anything unrecognised falls back to the legacy
+  `repr`-style so unknown failure modes still leave a usable trace.
+  Classification ordering matters because `APITimeoutError` inherits
+  from `APIConnectionError`, and `AuthenticationError` /
+  `RateLimitError` / `BadRequestError` all inherit from
+  `APIStatusError` — the 5xx branch explicitly excludes them so a
+  quirky provider returning `status_code=500` on an auth error
+  doesn't get mis-classified. No schema change: the formatted string
+  goes into the existing `error_message` `Text` column.
 
 - **`bcrypt<4.0` pin.** passlib 1.7.4 (still its last released version)
   reads `bcrypt.__about__.__version__` to choose its backend. That

@@ -1,6 +1,7 @@
 import os
 from typing import Any, Optional
 
+import httpx
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
@@ -232,6 +233,28 @@ class OpenAIClient(BaseLLMClient):
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
+
+        # Default max_retries: cloud providers see sustained 5xx bursts
+        # (Ollama Cloud, Tongyi/DashScope, OpenRouter passthrough) so the
+        # SDK default of 2 burns through retries in well under a second.
+        # Native openai stays at 2 because OpenAI's own infra is reliable
+        # and extra retries just amplify rate-limit penalties.
+        if "max_retries" not in llm_kwargs:
+            env_retries = os.environ.get("TRADINGAGENTS_LLM_MAX_RETRIES")
+            if env_retries is not None:
+                llm_kwargs["max_retries"] = int(env_retries)
+            else:
+                llm_kwargs["max_retries"] = 2 if self.provider == "openai" else 5
+
+        # Default timeout: httpx's default is 10 minutes, which lets a hung
+        # upstream pin the single-concurrent-run lock for the full window.
+        # Cap read at 120s; connect/write/pool stay tight at 10s.
+        if "timeout" not in llm_kwargs:
+            env_read = os.environ.get("TRADINGAGENTS_LLM_READ_TIMEOUT")
+            read_s = float(env_read) if env_read is not None else 120.0
+            llm_kwargs["timeout"] = httpx.Timeout(
+                connect=10.0, read=read_s, write=10.0, pool=10.0,
+            )
 
         # Native OpenAI: use Responses API for consistent behavior across
         # all model families. Third-party providers use Chat Completions.

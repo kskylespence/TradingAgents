@@ -7,11 +7,15 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, List, Optional
 
+import httpx
+import openai
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
+from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import RetryPolicy
 
 from tradingagents.llm_clients import create_llm_client
 
@@ -45,6 +49,40 @@ from .setup import GraphSetup
 from .propagation import Propagator
 from .reflection import Reflector
 from .signal_processing import SignalProcessor
+
+
+# Fix C: node-level retry policy for transient LLM/network failures.
+#
+# When Ollama Cloud (or any provider) returns 5xx on /v1/chat/completions, the
+# OpenAI SDK retries twice with sub-second backoff before raising. Without a
+# graph-level retry, that exception kills the whole LangGraph run on the first
+# bad minute. This policy gives every node one more shot, with an 8s base and
+# 2x backoff (so 8s + ~16s = ~24s window), which has empirically been enough to
+# ride out short provider blips without making the user wait minutes per node.
+_TRANSIENT_RETRY_POLICY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=8.0,
+    backoff_factor=2.0,
+    jitter=True,
+    retry_on=(
+        openai.InternalServerError,
+        openai.APITimeoutError,
+        openai.APIConnectionError,
+        httpx.RemoteProtocolError,
+    ),
+)
+
+
+def _attach_retry_policy(workflow: StateGraph) -> None:
+    """Stamp _TRANSIENT_RETRY_POLICY onto every node in ``workflow``.
+
+    LangGraph v1 attaches retry policies per node via ``add_node``, not on
+    ``compile``. Rather than thread the policy through GraphSetup, mutate
+    the node specs in place — this keeps the policy concern out of
+    ``setup.py`` and centralises it next to the constant.
+    """
+    for spec in workflow.nodes.values():
+        spec.retry_policy = _TRANSIENT_RETRY_POLICY
 
 
 class TradingAgentsGraph:
@@ -130,6 +168,7 @@ class TradingAgentsGraph:
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
         self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        _attach_retry_policy(self.workflow)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
 
@@ -313,6 +352,7 @@ class TradingAgentsGraph:
                 self.config["data_cache_dir"], company_name
             )
             saver = self._checkpointer_ctx.__enter__()
+            _attach_retry_policy(self.workflow)
             self.graph = self.workflow.compile(checkpointer=saver)
 
             step = checkpoint_step(
@@ -331,6 +371,7 @@ class TradingAgentsGraph:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
                 self._checkpointer_ctx = None
+                _attach_retry_policy(self.workflow)
                 self.graph = self.workflow.compile()
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):

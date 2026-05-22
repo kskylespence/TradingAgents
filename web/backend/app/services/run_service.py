@@ -55,6 +55,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from functools import partial
 from typing import Any, Dict, Optional
@@ -81,6 +82,103 @@ from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 from tradingagents.run_observer import stream_run
 
 log = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Friendly error formatting                                                   #
+# --------------------------------------------------------------------------- #
+
+
+#: Permissive matcher for upstream "ref:" correlation IDs surfaced inside
+#: provider error bodies. Ollama Cloud emits standard UUIDs; other
+#: providers use hex tokens of varying length. The lower bound (8 chars
+#: after the first nibble) avoids matching the literal word "ref:" with
+#: nothing useful after it, while still catching the shortest sensible
+#: correlation IDs.
+_REF_PATTERN = re.compile(r"ref:\s*([0-9a-f][0-9a-f-]{7,})", re.I)
+
+
+def _format_engine_error(exc: BaseException, provider: str) -> str:
+    """Render an operator-actionable message for an engine-loop failure.
+
+    The string is persisted into ``runs.error_message`` and rendered
+    verbatim by the frontend, so it must read as a complete sentence to
+    a non-technical operator. Where the underlying SDK error carries a
+    correlation ID (``ref:<uuid>``) we surface it prominently so it can
+    be quoted back to the upstream provider during incident triage.
+
+    The classification ordering matters: ``InternalServerError``,
+    ``AuthenticationError``, ``RateLimitError``, and ``BadRequestError``
+    are all subclasses of ``openai.APIStatusError``. We match the more
+    specific classes first so a 401 isn't mis-classified as a 5xx, and
+    we match ``APITimeoutError`` before ``APIConnectionError`` because
+    the timeout type inherits from the connection type. Any exception
+    we don't recognise falls back to the legacy
+    ``"{ClassName}: {message}"`` shape so unknown failure modes still
+    leave a usable trace.
+    """
+    # Lazy imports keep the module importable in environments where the
+    # OpenAI / httpx SDKs aren't installed (e.g. minimal test harnesses).
+    try:
+        import openai  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover — defensive
+        openai = None  # type: ignore[assignment]
+    try:
+        import httpx  # type: ignore[import-not-found]
+    except ImportError:  # pragma: no cover — defensive
+        httpx = None  # type: ignore[assignment]
+
+    exc_str = str(exc)
+    ref_match = _REF_PATTERN.search(exc_str)
+    ref = ref_match.group(1) if ref_match else None
+
+    if openai is not None:
+        if isinstance(exc, openai.InternalServerError) or (
+            isinstance(exc, openai.APIStatusError)
+            and not isinstance(
+                exc,
+                (
+                    openai.AuthenticationError,
+                    openai.RateLimitError,
+                    openai.BadRequestError,
+                ),
+            )
+            and getattr(exc, "status_code", 0) >= 500
+        ):
+            status_code = getattr(exc, "status_code", 500) or 500
+            return (
+                f"Upstream provider error ({provider}, HTTP {status_code}). "
+                f"This is usually transient. Reference: {ref or 'n/a'}. "
+                "Click Retry below, or pick a different model if it persists."
+            )
+        if isinstance(exc, openai.APITimeoutError):
+            return (
+                f"Request to {provider} timed out. Retry shortly; if it keeps "
+                "timing out, try a smaller/faster model."
+            )
+        if isinstance(exc, openai.APIConnectionError) or (
+            httpx is not None and isinstance(exc, httpx.ConnectError)
+        ):
+            return (
+                f"Could not reach {provider}. Verify network connectivity "
+                "and provider base URL (e.g. OLLAMA_BASE_URL)."
+            )
+        if isinstance(exc, openai.AuthenticationError):
+            return (
+                f"Authentication failed for {provider}. Verify the API key "
+                "environment variable is set correctly."
+            )
+        if isinstance(exc, openai.RateLimitError):
+            return f"Rate limited by {provider}. Wait a moment and Retry."
+        if isinstance(exc, openai.BadRequestError):
+            return f"Bad request to {provider}: {exc_str}"
+    elif httpx is not None and isinstance(exc, httpx.ConnectError):
+        return (
+            f"Could not reach {provider}. Verify network connectivity "
+            "and provider base URL (e.g. OLLAMA_BASE_URL)."
+        )
+
+    return f"{type(exc).__name__}: {exc}"
 
 
 # --------------------------------------------------------------------------- #
@@ -307,7 +405,7 @@ async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
                     was_cancelled = True
                 except Exception as exc:  # noqa: BLE001 — surface any engine error
                     log.exception("run_service.engine_failed", extra={"run_id": str(run_id)})
-                    failed_error = f"{type(exc).__name__}: {exc}"
+                    failed_error = _format_engine_error(exc, req.llm_provider)
                 else:
                     completed_ok = True
 
@@ -316,7 +414,7 @@ async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
             raise
         except Exception as exc:  # noqa: BLE001 — pre-engine setup error
             log.exception("run_service.setup_failed", extra={"run_id": str(run_id)})
-            failed_error = f"{type(exc).__name__}: {exc}"
+            failed_error = _format_engine_error(exc, req.llm_provider)
         finally:
             # ---- terminal event + DB update + cleanup ---------------- #
             try:

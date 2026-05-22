@@ -254,6 +254,59 @@ async def resume(
     return {"run_id": str(new_id), "parent_run_id": str(run_id)}
 
 
+@router.post(
+    "/{run_id}/retry",
+    status_code=status.HTTP_200_OK,
+)
+async def retry(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_session),
+    _user: AuthUser = Depends(get_current_user),
+) -> dict:
+    """Spawn a sibling run from a failed/cancelled run's persisted params.
+
+    The user shouldn't have to re-fill the entire ``NewRun`` form after
+    an upstream transient blip. We reconstruct the ``RunRequest`` from
+    the parent row and delegate to the same submit path used by
+    ``POST /api/runs`` — guaranteeing catalog validation, env-credential
+    checks, and global-lock semantics all behave identically. Returns
+    ``{run_id, parent_run_id}`` matching ``/resume``.
+
+    Only ``failed`` and ``cancelled`` runs are retryable.
+    ``interrupted`` already has ``/resume``; ``completed`` / ``running``
+    / ``queued`` are not retry-shaped.
+    """
+    parent = await db.get(Run, str(run_id))
+    if parent is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
+        )
+    if parent.status not in {"failed", "cancelled"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot retry run in status {parent.status!r}",
+        )
+
+    thinking_cfg = parent.thinking_config or {}
+    req = RunRequest(
+        ticker=parent.ticker,
+        analysis_date=parent.analysis_date,
+        output_language=parent.output_language,
+        analysts=list(parent.analysts),  # type: ignore[arg-type]
+        research_depth=parent.research_depth,  # type: ignore[arg-type]
+        llm_provider=parent.llm_provider,
+        quick_think_llm=parent.quick_think_llm,
+        deep_think_llm=parent.deep_think_llm,
+        google_thinking_level=thinking_cfg.get("google_thinking_level"),
+        openai_reasoning_effort=thinking_cfg.get("openai_reasoning_effort"),
+        anthropic_effort=thinking_cfg.get("anthropic_effort"),
+        enable_checkpoint=bool(parent.checkpoint_enabled),
+    )
+    await _validate_models_against_catalog(req)
+    new_id = await run_service.start_run(req, db)
+    return {"run_id": str(new_id), "parent_run_id": str(run_id)}
+
+
 # --------------------------------------------------------------------------- #
 # Report download                                                             #
 # --------------------------------------------------------------------------- #
