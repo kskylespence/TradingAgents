@@ -50,7 +50,14 @@ from .. import catalog as catalog_svc
 from ..auth import get_current_user
 from ..db import get_session
 from ..models import Run
-from ..schemas import AuthUser, RunDetail, RunRequest, RunStats
+from ..schemas import (
+    AuthUser,
+    RunDetail,
+    RunRequest,
+    RunStats,
+    RunValidationError,
+    UnhealthyModel,
+)
 from ..services import event_bus, run_service
 
 log = logging.getLogger(__name__)
@@ -64,21 +71,58 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 # --------------------------------------------------------------------------- #
 
 
-async def _validate_models_against_catalog(body: RunRequest) -> None:
-    """Reject mismatched provider/model pairs with HTTP 400 BEFORE engine launch.
+async def _suggested_alternatives() -> list[str]:
+    """Build the ``suggested_alternatives`` list for ``RunValidationError``.
 
-    Defense in depth — even if the form somehow submits stale state (a
-    replayed POST, a stale browser tab, a curl client bypassing the UI),
-    the run must NOT start. The previous failure mode for Ollama Cloud
-    was a 10-second-late 500 surfacing the upstream 404; this turns it
-    into a fast, descriptive 400 before any state is persisted.
+    Intersect of:
 
-    First checks that the provider itself is configured (credentials set
-    in env). Then validates each model against the live catalog for that
-    provider. Providers whose catalog includes the ``__custom__``
-    sentinel accept any model ID — that mirrors the settings router and
-    keeps the openrouter / azure / deepseek-style "Custom model ID"
-    affordance working.
+    * The curated cloud catalog snapshot (``CURATED_2026_05``).
+    * The currently-cached ``/v1/models`` listing — what the upstream
+      account actually has access to.
+    * Models NOT cached as unhealthy.
+
+    Sorted alphabetically with ``glm-5`` pinned first when present
+    (curated headline), capped at 3 entries. Returning fewer than 3 is
+    fine — the UI handles the empty case.
+    """
+    from ..services.ollama_curated import CURATED_2026_05
+    from ..services.ollama_models import (
+        cached_probe_unhealthy_models,
+        list_ollama_models,
+    )
+
+    available = set(await list_ollama_models())
+    unhealthy = set(cached_probe_unhealthy_models())
+    candidates = sorted(
+        (mid for mid in CURATED_2026_05 if mid in available and mid not in unhealthy)
+    )
+
+    # Pin glm-5 to the front when it survived the filter; the rest
+    # stays alphabetical so the order is deterministic.
+    head: list[str] = []
+    if "glm-5" in candidates:
+        head.append("glm-5")
+        candidates.remove("glm-5")
+    return (head + candidates)[:3]
+
+
+async def _validate_and_probe(body: RunRequest) -> None:
+    """Reject invalid AND unresponsive model selections BEFORE engine launch.
+
+    Two layers:
+
+    1. **Catalog validation** — same defense-in-depth logic that landed
+       in Phase 1. Rejects stale form submissions / replayed POSTs that
+       reference a model the provider doesn't expose.
+
+    2. **Liveness probe (Ollama only)** — ``POST /v1/chat/completions``
+       with a tiny tool-bearing payload to every selected model. A run
+       on 2026-05-22 hung for 56 minutes because the engine launched on
+       an upstream-stuck ``kimi-k2-thinking``; the probe catches that
+       failure mode in ~15s and returns a structured 400 with healthy
+       alternatives. Other providers (openai, anthropic, ...) are out
+       of scope here — they will get their own liveness checks in a
+       follow-up pass.
     """
     from tradingagents.providers import available_providers
 
@@ -111,6 +155,60 @@ async def _validate_models_against_catalog(body: RunRequest) -> None:
                 ),
             )
 
+    # Liveness probe — Ollama only. Dedup so quick == deep is one probe.
+    if provider == "ollama":
+        from ..services.ollama_models import probe_model_liveness
+
+        to_probe = {body.quick_think_llm, body.deep_think_llm}
+        # asyncio.gather preserves submission order, but we want a
+        # deterministic listing in the response — sort the model ids so
+        # the unhealthy_models block reads the same on every call.
+        ordered = sorted(to_probe)
+        results = await asyncio.gather(*(probe_model_liveness(m) for m in ordered))
+
+        unhealthy: list[UnhealthyModel] = []
+        for result in results:
+            outcome = result.get("status")
+            if outcome == "ok":
+                continue
+            unhealthy.append(
+                UnhealthyModel(
+                    model=result["model"],
+                    status=outcome,  # type: ignore[arg-type]
+                    upstream_ref=result.get("upstream_ref"),
+                )
+            )
+
+        if unhealthy:
+            # Preserve the dual-selection ordering in the response — the
+            # user's quick_think model first, then deep_think — when
+            # both are unhealthy. Single-model failures keep their natural
+            # order.
+            wanted = [body.quick_think_llm, body.deep_think_llm]
+            unhealthy.sort(
+                key=lambda u: (
+                    wanted.index(u.model)
+                    if u.model in wanted
+                    else len(wanted)
+                )
+            )
+            alternatives = await _suggested_alternatives()
+            names = ", ".join(u.model for u in unhealthy)
+            error = RunValidationError(
+                code="upstream_model_unhealthy",
+                message=(
+                    f"Selected model(s) {names} are not responding on Ollama "
+                    "Cloud. Pick a known-good alternative below or wait for "
+                    "the upstream to recover."
+                ),
+                unhealthy_models=unhealthy,
+                suggested_alternatives=alternatives,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error.model_dump(),
+            )
+
 
 @router.post("", status_code=status.HTTP_200_OK)
 @router.post("/", status_code=status.HTTP_200_OK)
@@ -124,10 +222,11 @@ async def create_run(
     Returns ``{run_id, status}`` immediately; the lifecycle runs in a
     background task and reports progress via SSE on ``/:id/events``.
 
-    Validates provider/model against the live catalog before launching
-    the engine — see ``_validate_models_against_catalog``.
+    Validates provider/model against the live catalog AND runs a pre-flight
+    liveness probe (Ollama only) before launching the engine — see
+    ``_validate_and_probe``.
     """
-    await _validate_models_against_catalog(body)
+    await _validate_and_probe(body)
     run_id = await run_service.start_run(body, db)
     return {"run_id": str(run_id), "status": "queued"}
 
@@ -302,7 +401,7 @@ async def retry(
         anthropic_effort=thinking_cfg.get("anthropic_effort"),
         enable_checkpoint=bool(parent.checkpoint_enabled),
     )
-    await _validate_models_against_catalog(req)
+    await _validate_and_probe(req)
     new_id = await run_service.start_run(req, db)
     return {"run_id": str(new_id), "parent_run_id": str(run_id)}
 

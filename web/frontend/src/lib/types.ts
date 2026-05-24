@@ -48,6 +48,18 @@ export interface CatalogModel {
   id: string;
   label: string;
   allows_custom: boolean;
+  /**
+   * Only set for provider=ollama. `true` -> in the active curated cloud
+   * catalog (web/backend/app/services/ollama_curated.py snapshot).
+   * `false` -> reachable via /v1/models but Ollama has de-emphasised it
+   * (often due to tracked reliability issues — see
+   * ollama/ollama#15453, #14542). Field is OMITTED for non-Ollama
+   * providers, so an older backend that doesn't know about the field
+   * naturally falls into the "no badge" branch. Frontend code that
+   * checks this MUST treat `undefined` as curated (don't badge models
+   * we have no signal for).
+   */
+  curated?: boolean;
 }
 
 export interface CatalogAnalyst {
@@ -258,6 +270,28 @@ export interface StatsEvent extends RunEventBase {
   elapsed_seconds: number;
 }
 
+/**
+ * Layer 4 in-run heartbeat. The backend emits these at ~30s intervals while
+ * a single LLM call is outstanding so the live dashboard can show
+ * "still waiting on Fundamentals Analyst – kimi-k2-thinking (60s elapsed)"
+ * rather than going silent for the full retry envelope (which can be 30+
+ * minutes for slow reasoning models). `soft_warning` flips once
+ * `elapsed_seconds` crosses ~90s — the frontend uses it to style the row
+ * distinctly (amber) so operators notice and can hit Cancel.
+ *
+ * Heartbeats are implicitly stale: as soon as the next non-heartbeat
+ * event arrives for the run, the UI replaces the row. There is no
+ * explicit "call completed" event — the absence of further heartbeats
+ * combined with the next normal event signals the call is over.
+ */
+export interface LlmCallPendingEvent extends RunEventBase {
+  type: "llm_call_pending";
+  model: string;
+  agent: string;
+  elapsed_seconds: number;
+  soft_warning: boolean;
+}
+
 export interface RunCompletedEvent extends RunEventBase {
   type: "run_completed";
   rating: Rating;
@@ -286,6 +320,7 @@ export type RunEvent =
   | InvestmentDebateEvent
   | RiskDebateEvent
   | StatsEvent
+  | LlmCallPendingEvent
   | RunCompletedEvent
   | RunFailedEvent
   | RunCancelledEvent;
@@ -299,6 +334,42 @@ export interface Announcement {
   url?: string;
   severity?: "info" | "warning" | "critical";
   published_at?: string;
+}
+
+// ----- Run validation (HTTP 400 detail body from POST /api/runs) -----
+
+/**
+ * Per-model probe failure shape inside `RunValidationError`. Mirrors
+ * `app.schemas.UnhealthyModel`.
+ *
+ * `status` is the failure mode; `upstream_ref` is the Ollama `(ref: ...)`
+ * identifier when the upstream surfaced one in its 5xx error body.
+ */
+export interface UnhealthyModel {
+  model: string;
+  status:
+    | "timeout"
+    | "http_5xx"
+    | "http_4xx"
+    | "degraded_empty_response";
+  upstream_ref: string | null;
+}
+
+/**
+ * Structured 400 body returned by `/api/runs` and `/api/runs/{id}/retry`
+ * when a pre-flight liveness probe fails for one or more selected
+ * Ollama models. Mirrors `app.schemas.RunValidationError`.
+ *
+ * The body is delivered as the `detail` field of the FastAPI response
+ * envelope, so callers extract it via:
+ *
+ *   (apiError.body as { detail?: RunValidationError })?.detail
+ */
+export interface RunValidationError {
+  code: "upstream_model_unhealthy";
+  message: string;
+  unhealthy_models: UnhealthyModel[];
+  suggested_alternatives: string[];
 }
 
 // ----- Health (GET /api/health) -----

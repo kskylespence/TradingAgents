@@ -44,6 +44,13 @@ class ModelCapabilities:
     # (Coding Plan, MiniMax-Text-01, etc.), so we only set it where the
     # model actually consumes it. (#826)
     requires_reasoning_split: bool = False
+    # Per-model read timeout. Reasoning models (kimi-k2-thinking, gpt-oss,
+    # deepseek-v3.2, ...) legitimately take 2-4 minutes per call; the
+    # global 120s default is hostile to them. ``None`` means "use the
+    # default", letting fast models stay on the tight budget. The
+    # ``TRADINGAGENTS_LLM_READ_TIMEOUT`` env var still wins over this
+    # because operators set it deploy-wide.
+    read_timeout_seconds: int | None = None
 
 
 # DeepSeek's thinking models accept the ``tools`` array but reject the
@@ -90,11 +97,38 @@ _DEFAULT = ModelCapabilities(
     preferred_structured_method="function_calling",
 )
 
+# Reasoning models (Kimi K2 family, GPT-OSS, future ``*:thinking`` variants)
+# observe normal API quirks but routinely need 2-4 minutes per call. The
+# global 120s default was the proximate cause of a 37-minute pipeline hang
+# on 2026-05-22, so these models carry a 300s read budget through the
+# capability table.
+_REASONING_LONG_TIMEOUT = ModelCapabilities(
+    supports_tool_choice=True,
+    supports_json_mode=True,
+    supports_json_schema=True,
+    preferred_structured_method="function_calling",
+    read_timeout_seconds=300,
+)
+
+# DeepSeek V3.2 is a thinking-mode model with the same API quirks as the
+# rest of the V3/V4 lineup (no tool_choice, reasoning roundtrip) but a
+# tighter 240s read budget — DeepSeek's own latency SLO is meaningfully
+# better than Kimi K2's.
+_DEEPSEEK_V3_2 = ModelCapabilities(
+    supports_tool_choice=False,
+    supports_json_mode=True,
+    supports_json_schema=False,
+    preferred_structured_method="function_calling",
+    requires_reasoning_content_roundtrip=True,
+    read_timeout_seconds=240,
+)
+
 
 # Exact-ID matches take precedence over pattern matches.
 _BY_ID: dict[str, ModelCapabilities] = {
     "deepseek-chat": _DEEPSEEK_CHAT,
     "deepseek-reasoner": _DEEPSEEK_THINKING,
+    "deepseek-v3.2": _DEEPSEEK_V3_2,
     "deepseek-v4-flash": _DEEPSEEK_THINKING,
     "deepseek-v4-pro": _DEEPSEEK_THINKING,
     # MiniMax — full official model lineup per
@@ -106,14 +140,32 @@ _BY_ID: dict[str, ModelCapabilities] = {
     "MiniMax-M2.1": _MINIMAX_THINKING,
     "MiniMax-M2.1-highspeed": _MINIMAX_THINKING,
     "MiniMax-M2": _MINIMAX_THINKING,
+    # Reasoning models with long inference latency. The 300s read budget
+    # exists because a real run on 2026-05-22 hung for 37 minutes inside
+    # one LangGraph node when kimi-k2-thinking could not finish under the
+    # 120s global default. The flags otherwise match the permissive
+    # default — these models accept the standard OpenAI tool-calling
+    # shape served via Ollama Cloud.
+    "kimi-k2-thinking": _REASONING_LONG_TIMEOUT,
+    "kimi-k2.5": _REASONING_LONG_TIMEOUT,
+    "kimi-k2.6": _REASONING_LONG_TIMEOUT,
+    "gpt-oss:120b": _REASONING_LONG_TIMEOUT,
+    "gpt-oss:20b": _REASONING_LONG_TIMEOUT,
 }
 
 # Forward-compat patterns. New ``deepseek-v5-*`` / ``deepseek-reasoner-*``
 # or ``MiniMax-M3*`` variants inherit the thinking-mode quirks automatically.
+# Kimi K2 successors and any model whose ID ends in ``:thinking`` inherit
+# the 300s read budget by default.
 _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
     (re.compile(r"^deepseek-v\d"), _DEEPSEEK_THINKING),
     (re.compile(r"^deepseek-reasoner"), _DEEPSEEK_THINKING),
     (re.compile(r"^MiniMax-M\d"), _MINIMAX_THINKING),
+    (re.compile(r"^kimi-k2"), _REASONING_LONG_TIMEOUT),
+    # ``.+`` is needed because ``get_capabilities`` uses ``re.match`` which
+    # anchors at position 0; a bare ``:thinking$`` would only match a model
+    # named literally ``:thinking``.
+    (re.compile(r"^.+:thinking$"), _REASONING_LONG_TIMEOUT),
 ]
 
 

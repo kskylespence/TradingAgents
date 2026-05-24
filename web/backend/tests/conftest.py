@@ -162,6 +162,15 @@ def install_fake_httpx_ollama(
     between tests consistent: if the service ever changes how it
     constructs the request, every test exercising the catalog/runs/health
     flows fails at once.
+
+    Covers BOTH endpoints exposed by the service:
+
+    * ``GET /v1/models`` — the catalog listing path (driven by ``ids``).
+    * ``POST /v1/chat/completions`` — the model liveness probe path
+      (Phase 2 Layer 1). The default behaviour is "every model is
+      healthy" so existing tests that don't care about probing keep
+      working unchanged. Tests that *do* want a probe failure should
+      use the more granular helper in ``test_runs_preflight_probe.py``.
     """
     import httpx
 
@@ -180,6 +189,15 @@ def install_fake_httpx_ollama(
 
         def json(self) -> dict:
             return self._payload
+
+        @property
+        def text(self) -> str:
+            import json as _json
+
+            try:
+                return _json.dumps(self._payload)
+            except Exception:
+                return str(self._payload)
 
     class _FakeClient:
         def __init__(self, *_args, **_kwargs):
@@ -200,6 +218,32 @@ def install_fake_httpx_ollama(
             return _FakeResponse(
                 status,
                 {"object": "list", "data": [{"id": x} for x in (ids or [])]},
+            )
+
+        async def post(self, url, *, json=None, headers=None):
+            # Default-healthy probe response for the pre-flight probe
+            # path (Layer 1). Tests that want a probe failure should
+            # install their own client via ``_install_probe_fake`` in
+            # ``test_runs_preflight_probe.py``.
+            model_id = (json or {}).get("model", "")
+            return _FakeResponse(
+                200,
+                {
+                    "id": "chatcmpl-fake",
+                    "object": "chat.completion",
+                    "model": model_id,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "pong",
+                                "tool_calls": None,
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
             )
 
     monkeypatch.setattr(

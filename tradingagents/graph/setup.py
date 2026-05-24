@@ -1,6 +1,6 @@
 # TradingAgents/graph/setup.py
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -9,6 +9,28 @@ from tradingagents.agents.utils.agent_states import AgentState
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+
+
+def _tag_agent(node_fn: Callable, *llms: Any, agent_label: str) -> Callable:
+    """Wrap ``node_fn`` so heartbeat events emitted during its LLM calls
+    carry ``agent=agent_label``.
+
+    The LLM client's heartbeat wrapper reads ``_heartbeat_agent_hint`` off
+    the client at emit time, so we set it on every LLM the node might
+    touch (both quick and deep clients — analysts use quick, the manager
+    nodes use deep, but stamping both is cheap and avoids guessing).
+    The wrapper is intentionally tolerant of LLMs that don't expose
+    ``set_agent_hint`` (Anthropic / Google clients) so it can be
+    applied uniformly.
+    """
+
+    def wrapped(state):
+        for llm in llms:
+            if hasattr(llm, "set_agent_hint"):
+                llm.set_agent_hint(agent_label)
+        return node_fn(state)
+
+    return wrapped
 
 
 class GraphSetup:
@@ -68,21 +90,61 @@ class GraphSetup:
         # Create workflow
         workflow = StateGraph(AgentState)
 
+        # Tag every node with the agent label so heartbeat events emitted
+        # during slow LLM calls carry an identifiable agent. The wrapper
+        # is a no-op for non-OpenAI clients (Anthropic / Google) — see
+        # _tag_agent. ``self.quick_thinking_llm`` and ``self.deep_thinking_llm``
+        # are both stamped so we don't have to track which client each
+        # node uses.
+        llms = (self.quick_thinking_llm, self.deep_thinking_llm)
+
         # Add analyst nodes to the graph
         for spec in plan.specs:
-            workflow.add_node(spec.agent_node, analyst_factories[spec.key]())
+            workflow.add_node(
+                spec.agent_node,
+                _tag_agent(
+                    analyst_factories[spec.key](),
+                    *llms,
+                    agent_label=spec.agent_node,
+                ),
+            )
             workflow.add_node(spec.clear_node, create_msg_delete())
             workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
 
-        # Add other nodes
-        workflow.add_node("Bull Researcher", bull_researcher_node)
-        workflow.add_node("Bear Researcher", bear_researcher_node)
-        workflow.add_node("Research Manager", research_manager_node)
-        workflow.add_node("Trader", trader_node)
-        workflow.add_node("Aggressive Analyst", aggressive_analyst)
-        workflow.add_node("Neutral Analyst", neutral_analyst)
-        workflow.add_node("Conservative Analyst", conservative_analyst)
-        workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        # Add other nodes — each wrapped with its label so heartbeats name
+        # the researcher/debater/PM instead of falling back to "Engine".
+        workflow.add_node(
+            "Bull Researcher",
+            _tag_agent(bull_researcher_node, *llms, agent_label="Bull Researcher"),
+        )
+        workflow.add_node(
+            "Bear Researcher",
+            _tag_agent(bear_researcher_node, *llms, agent_label="Bear Researcher"),
+        )
+        workflow.add_node(
+            "Research Manager",
+            _tag_agent(research_manager_node, *llms, agent_label="Research Manager"),
+        )
+        workflow.add_node(
+            "Trader",
+            _tag_agent(trader_node, *llms, agent_label="Trader"),
+        )
+        workflow.add_node(
+            "Aggressive Analyst",
+            _tag_agent(aggressive_analyst, *llms, agent_label="Aggressive Analyst"),
+        )
+        workflow.add_node(
+            "Neutral Analyst",
+            _tag_agent(neutral_analyst, *llms, agent_label="Neutral Analyst"),
+        )
+        workflow.add_node(
+            "Conservative Analyst",
+            _tag_agent(conservative_analyst, *llms, agent_label="Conservative Analyst"),
+        )
+        workflow.add_node(
+            "Portfolio Manager",
+            _tag_agent(portfolio_manager_node, *llms, agent_label="Portfolio Manager"),
+        )
 
         # Define edges
         # Start with the first analyst

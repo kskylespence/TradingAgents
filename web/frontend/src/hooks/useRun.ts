@@ -6,6 +6,7 @@ import { useEventSource, type SSEState } from "@/lib/sse";
 import type {
   AgentStatusEvent,
   InvestmentDebateEvent,
+  LlmCallPendingEvent,
   MessageEvent as RunMessageEvent,
   Rating,
   RiskDebateEvent,
@@ -55,6 +56,13 @@ export interface UseRunResult {
   runStatus: RunStatus;
   /** Error message populated by run_failed event. */
   errorMessage: string | undefined;
+  /**
+   * Latest in-flight heartbeat. Cleared as soon as any non-heartbeat event
+   * arrives (the contract: heartbeats are implicitly stale once the call
+   * resolves and the engine emits anything else). Undefined when no LLM
+   * call has crossed the 30s threshold recently.
+   */
+  llmCallPending: LlmCallPendingEvent | undefined;
   /** SSE connection state passthrough. */
   sseState: SSEState;
   /** Force-close + reopen the EventSource. */
@@ -74,6 +82,14 @@ interface ReducerState {
   finalRating: Rating | undefined;
   terminalStatus: RunStatus | undefined;
   errorMessage: string | undefined;
+  /**
+   * Latest in-flight heartbeat. The reducer sets it when an
+   * `llm_call_pending` event arrives and clears it on any other event
+   * — that's the implicit "call resolved" signal since the engine
+   * emits something the moment the LLM call returns (e.g. a message,
+   * tool_call, or agent_status flip).
+   */
+  llmCallPending: LlmCallPendingEvent | undefined;
 }
 
 const initialReducerState = (): ReducerState => ({
@@ -89,6 +105,7 @@ const initialReducerState = (): ReducerState => ({
   finalRating: undefined,
   terminalStatus: undefined,
   errorMessage: undefined,
+  llmCallPending: undefined,
 });
 
 /**
@@ -97,6 +114,17 @@ const initialReducerState = (): ReducerState => ({
  * new — required by ``useReducer``).
  */
 function applyEvent(state: ReducerState, ev: RunEvent): ReducerState {
+  // Clear any active heartbeat row whenever a non-heartbeat event arrives.
+  // The contract (see LlmCallPendingEvent docstring): the engine emits SOME
+  // event the moment a slow LLM call resolves (a message, tool_call,
+  // agent_status flip, …). We don't need an explicit "call done" event —
+  // the next event implicitly retires the heartbeat. Without this, a slow
+  // call's heartbeat would linger on screen indefinitely after the call
+  // returned.
+  if (ev.type !== "llm_call_pending") {
+    state.llmCallPending = undefined;
+  }
+
   switch (ev.type) {
     case "run_started":
       // Nothing to mutate — RunDetail is the source of truth for the baseline.
@@ -132,6 +160,13 @@ function applyEvent(state: ReducerState, ev: RunEvent): ReducerState {
       break;
     case "stats":
       state.stats = ev;
+      break;
+    case "llm_call_pending":
+      // Latest heartbeat replaces the previous one — same call, just with
+      // a higher elapsed_seconds value (or a soft_warning that wasn't
+      // there yet). The cleared-by-other-events branch above handles the
+      // "call resolved" case.
+      state.llmCallPending = ev;
       break;
     case "run_completed":
       state.finalRating = ev.rating;
@@ -186,6 +221,7 @@ function reducer(state: ReducerState, action: ReducerAction): ReducerState {
     finalRating: state.finalRating,
     terminalStatus: state.terminalStatus,
     errorMessage: state.errorMessage,
+    llmCallPending: state.llmCallPending,
   };
   for (const ev of action.events) {
     applyEvent(draft, ev);
@@ -297,6 +333,7 @@ export function useRun(runId: string | undefined): UseRunResult {
     finalRating,
     runStatus,
     errorMessage,
+    llmCallPending: reduced.llmCallPending,
     sseState: sse.state,
     reconnect: () => {
       sse.close();

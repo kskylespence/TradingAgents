@@ -141,12 +141,24 @@ async def list_models(provider: str, mode: Mode) -> list[CatalogModel]:
     provider_key = provider.lower()
 
     # Ollama: live discovery, never a __custom__ sentinel.
+    #
+    # Each model is additionally flagged ``curated: bool`` from the
+    # snapshot in ``app.services.ollama_curated``. The frontend uses
+    # this to sort curated models first and badge non-curated ones with
+    # an inline warning — see web/frontend/src/routes/NewRun.tsx and
+    # the deprioritisation rationale in ``ollama_curated``'s docstring.
     if provider_key == "ollama":
+        from app.services.ollama_curated import is_curated
         from app.services.ollama_models import list_ollama_models
 
         ids = await list_ollama_models()
         return [
-            CatalogModel(id=mid, label=mid, allows_custom=False)
+            CatalogModel(
+                id=mid,
+                label=mid,
+                allows_custom=False,
+                curated=is_curated(mid),
+            )
             for mid in ids
         ]
 

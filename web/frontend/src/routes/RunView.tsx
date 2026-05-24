@@ -23,6 +23,7 @@ import { useRun } from "@/hooks/useRun";
 import { ApiError, api } from "@/lib/api";
 import type {
   InvestmentDebateEvent,
+  LlmCallPendingEvent,
   RiskDebateEvent,
   RunStatus,
   ToolCallEvent,
@@ -59,6 +60,7 @@ export default function RunView() {
     finalRating,
     runStatus,
     errorMessage,
+    llmCallPending,
   } = result;
 
   // --- Cancel mutation ---
@@ -234,11 +236,12 @@ export default function RunView() {
 
       {/* Two-column body */}
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
-        {/* Left: agent grid */}
+        {/* Left: agent grid (with optional in-flight heartbeat row) */}
         <div className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Pipeline
           </h2>
+          {llmCallPending ? <HeartbeatRow event={llmCallPending} /> : null}
           <AgentStatusGrid agents={agents} />
         </div>
 
@@ -326,6 +329,43 @@ function StatusPill({ status }: { status: RunStatus }) {
     >
       {status}
     </span>
+  );
+}
+
+/**
+ * Inline status row rendered while an LLM call has been pending past 30s.
+ * The reducer clears `llmCallPending` as soon as any non-heartbeat event
+ * arrives, so this component is mounted only while the call is genuinely
+ * outstanding. ``soft_warning`` switches to amber styling and exposes the
+ * separate test id used by the heartbeat tests.
+ */
+function HeartbeatRow({ event }: { event: LlmCallPendingEvent }) {
+  const isWarning = event.soft_warning;
+  return (
+    <div
+      data-testid={isWarning ? "heartbeat-warning" : "heartbeat-row"}
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "flex items-center gap-3 rounded-md border px-3 py-2 text-xs",
+        isWarning
+          ? "border-amber-500/50 bg-amber-50 text-amber-900"
+          : "border-blue-500/30 bg-blue-50 text-blue-900",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-flex h-2 w-2 animate-pulse rounded-full",
+          isWarning ? "bg-amber-500" : "bg-blue-500",
+        )}
+        aria-hidden
+      />
+      <span className="flex-1">
+        <span className="font-semibold">{event.agent}</span>
+        <span className="text-muted-foreground"> · {event.model}</span>
+      </span>
+      <span className="font-mono tabular-nums">{event.elapsed_seconds}s</span>
+    </div>
   );
 }
 

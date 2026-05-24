@@ -45,7 +45,11 @@ async def get_providers(
     return catalog_svc.list_providers()
 
 
-@router.get("/models", response_model=list[CatalogModel])
+@router.get(
+    "/models",
+    response_model=list[CatalogModel],
+    response_model_exclude_none=True,
+)
 async def get_models(
     provider: str = Query(..., description="Provider key, e.g. 'openai'."),
     mode: Literal["quick", "deep"] = Query(
@@ -56,7 +60,12 @@ async def get_models(
     """List candidate models for a provider/mode pair.
 
     ``ollama`` is live-discovered from the upstream Ollama / Ollama Cloud
-    instance; other providers come from the static catalog.
+    instance; other providers come from the static catalog. The Ollama
+    branch sets ``curated: bool`` per model from the snapshot in
+    ``app.services.ollama_curated``; non-ollama responses omit the field
+    entirely (via ``response_model_exclude_none``) because we have no
+    equivalent quality signal there. The frontend's optional
+    ``curated?: boolean`` matches both shapes.
     """
     return await catalog_svc.list_models(provider, mode)
 

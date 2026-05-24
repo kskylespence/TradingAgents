@@ -190,6 +190,28 @@ class WebRunObserver(RunObserver):
         )
         self._schedule(payload)
 
+    def emit_llm_call_pending(self, info: dict[str, Any]) -> None:
+        """Emit an ``LlmCallPendingEvent`` (Layer 4 heartbeat).
+
+        Called by ``NormalizedChatOpenAI``'s heartbeat wrapper at 30s
+        intervals while a single LLM call is outstanding so the SSE
+        client can render "still waiting on Fundamentals Analyst –
+        kimi-k2-thinking (60s elapsed)" rather than going silent until
+        the call resolves or the timeout fires. ``info`` is a dict with
+        ``{model, agent, elapsed_seconds, soft_warning}``; we project
+        it into the validated Pydantic event so the frontend types
+        line up. Soft-warning crossing is the LLM client's
+        responsibility — see ``HEARTBEAT_SOFT_WARNING_AFTER`` there.
+        """
+        payload = self._build(
+            S.LlmCallPendingEvent,
+            model=str(info.get("model") or "unknown"),
+            agent=str(info.get("agent") or "Engine"),
+            elapsed_seconds=int(info.get("elapsed_seconds") or 0),
+            soft_warning=bool(info.get("soft_warning") or False),
+        )
+        self._schedule(payload)
+
     async def aclose(self) -> None:
         """Wait for every scheduled publish to finish.
 

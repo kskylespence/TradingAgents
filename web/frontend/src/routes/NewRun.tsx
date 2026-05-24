@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
+import {
+  ModelOptionLabel,
+  sortCuratedFirst,
+} from "@/components/ModelOptionLabel";
 import { OllamaUpstreamAlert } from "@/components/OllamaUpstreamAlert";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,10 +48,12 @@ import type {
   AnalystKey,
   AnthropicEffort,
   AssetType,
+  CatalogModel,
   GoogleThinkingLevel,
   OpenAIReasoningEffort,
   ResearchDepth,
   RunRequest,
+  RunValidationError,
 } from "@/lib/types";
 
 const DEPTH_OPTIONS: { value: ResearchDepth; label: string; hint: string }[] = [
@@ -122,6 +128,13 @@ export default function NewRun() {
   const [googleLevel, setGoogleLevel] = useState<GoogleThinkingLevel>("high");
   const [enableCheckpoint, setEnableCheckpoint] = useState(true);
   const [validationError, setValidationError] = useState<string | null>(null);
+  // 400 detail from `POST /api/runs` when the pre-flight liveness probe
+  // (web/backend Layer 1) rejects a selected Ollama model. Surfaced via
+  // the same `OllamaUpstreamAlert` block used for the steady-state
+  // health probe.
+  const [probeValidation, setProbeValidation] = useState<
+    RunValidationError | null
+  >(null);
 
   // --- Debounce ticker → asset_type → analyst filter ----------------------- //
   useEffect(() => {
@@ -179,7 +192,15 @@ export default function NewRun() {
     setQuickModelCustom("");
     setDeepModelSel("");
     setDeepModelCustom("");
+    // A probe failure is tied to the previous selection — switching
+    // provider or model dismisses the banner so a stale warning doesn't
+    // linger after the user has already corrected the choice.
+    setProbeValidation(null);
   }, [provider]);
+
+  useEffect(() => {
+    setProbeValidation(null);
+  }, [quickModelSel, deepModelSel]);
 
   useEffect(() => {
     if (quickModelSel) return;
@@ -275,6 +296,7 @@ export default function NewRun() {
   const mutation = useMutation<RunCreatedResponse, ApiError, RunRequest>({
     mutationFn: (body) => api.post<RunCreatedResponse>("/api/runs", body),
     onSuccess: (data) => {
+      setProbeValidation(null);
       navigate(`/runs/${data.run_id}`);
     },
     onError: (err) => {
@@ -296,6 +318,25 @@ export default function NewRun() {
           ),
           variant: "destructive",
         });
+      } else if (err.status === 400) {
+        // Pre-flight liveness probe rejection — backend Layer 1.
+        // The 400 body is `{ detail: RunValidationError }`; surface it
+        // inline via the alert rather than a transient toast so the
+        // user can actually act on the alternatives list.
+        const detail = (err.body as { detail?: unknown } | null)?.detail;
+        if (
+          detail &&
+          typeof detail === "object" &&
+          (detail as RunValidationError).code === "upstream_model_unhealthy"
+        ) {
+          setProbeValidation(detail as RunValidationError);
+        } else {
+          toast({
+            title: "Could not start run",
+            description: err.message,
+            variant: "destructive",
+          });
+        }
       } else if (err.status === 422 || (err.status >= 400 && err.status < 500)) {
         toast({
           title: "Could not start run",
@@ -498,10 +539,14 @@ export default function NewRun() {
 
             {/* Ollama upstream warning — see OllamaUpstreamAlert for
                 the visibility logic. Extracted so the alert can be
-                unit-tested without mounting the full form. */}
+                unit-tested without mounting the full form. Renders
+                two modes: steady-state health-probe failures (background
+                /api/health poll) AND submit-time pre-flight model
+                probe failures (RunValidationError from POST /api/runs). */}
             <OllamaUpstreamAlert
               provider={provider}
               health={healthQuery.data?.ollama ?? null}
+              validation={probeValidation}
             />
 
             {/* 5. LLM provider */}
@@ -719,7 +764,7 @@ export default function NewRun() {
 interface ModelPickerProps {
   id: string;
   label: string;
-  models: { id: string; label: string; allows_custom: boolean }[] | undefined;
+  models: CatalogModel[] | undefined;
   loading: boolean;
   selected: string;
   onSelect: (id: string) => void;
@@ -759,9 +804,9 @@ function ModelPicker({
               <SelectValue placeholder={placeholder} />
             </SelectTrigger>
             <SelectContent>
-              {(models ?? []).map((m) => (
+              {sortCuratedFirst(models ?? []).map((m) => (
                 <SelectItem key={m.id} value={m.id}>
-                  {m.label}
+                  <ModelOptionLabel model={m} />
                 </SelectItem>
               ))}
             </SelectContent>

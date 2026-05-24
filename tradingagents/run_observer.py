@@ -86,6 +86,19 @@ class RunObserver(ABC):
 
     def on_cancelled(self) -> None: pass
 
+    def emit_llm_call_pending(self, payload: Dict[str, Any]) -> None:
+        """In-run heartbeat: a single LLM call has been outstanding past 30s.
+
+        Layer 4 of the resilience pass. The LLM client's ``invoke`` /
+        ``ainvoke`` wrapper calls this at 30s intervals so the UI can
+        render "still waiting on this call (60s elapsed)" instead of
+        going silent for the full retry envelope. ``payload`` is
+        ``{model, agent, elapsed_seconds, soft_warning}``. The CLI
+        observer's default is to ignore this entirely; the web
+        observer publishes it as an SSE event.
+        """
+        pass
+
 
 # --------------------------------------------------------------------------- #
 # Chunk-routing helpers (formerly in cli/main.py)                             #

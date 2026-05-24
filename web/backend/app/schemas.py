@@ -78,6 +78,13 @@ class CatalogModel(_FrontendModel):
     id: str
     label: str
     allows_custom: bool
+    # Only set for provider=ollama. ``True`` -> model is in the active
+    # curated cloud catalog snapshot (see ``app.services.ollama_curated``).
+    # ``False`` -> model is reachable via /v1/models but Ollama has
+    # de-emphasised it, often because of tracked reliability issues. The
+    # field is omitted entirely for non-Ollama providers because we have
+    # no equivalent quality signal there.
+    curated: Optional[bool] = None
 
 
 class CatalogAnalyst(_FrontendModel):
@@ -300,6 +307,25 @@ class StatsEvent(_RunEventBase):
     elapsed_seconds: float
 
 
+class LlmCallPendingEvent(_RunEventBase):
+    """Layer 4 in-run heartbeat — an LLM call has been pending ≥30s.
+
+    The LLM client's heartbeat wrapper emits this at ``HEARTBEAT_INTERVAL_SECONDS``
+    (30s) intervals while a single call is outstanding so the SSE client can
+    show "still waiting on this call (60s elapsed)" rather than going silent
+    for the full retry envelope (which is 37+ min for slow reasoning models
+    after the Layer 2 timeout bump). ``soft_warning`` flips once
+    ``elapsed_seconds`` crosses ~90s so the frontend can style the row
+    distinctly (e.g. amber) to indicate the call is suspiciously slow.
+    """
+
+    type: Literal["llm_call_pending"] = "llm_call_pending"
+    model: str
+    agent: str
+    elapsed_seconds: int
+    soft_warning: bool = False
+
+
 class RunCompletedEvent(_RunEventBase):
     type: Literal["run_completed"] = "run_completed"
     rating: Rating
@@ -329,6 +355,7 @@ RunEvent = Annotated[
         InvestmentDebateEvent,
         RiskDebateEvent,
         StatsEvent,
+        LlmCallPendingEvent,
         RunCompletedEvent,
         RunFailedEvent,
         RunCancelledEvent,
@@ -377,6 +404,46 @@ class OllamaHealth(_FrontendModel):
     url: str
     model_count: Optional[int] = None
     error: Optional[str] = None
+
+
+class UnhealthyModel(_FrontendModel):
+    """Per-model probe failure detail for ``RunValidationError``.
+
+    ``status`` mirrors the ``ProbeOutcome`` literal in
+    ``app.services.ollama_models`` minus ``ok`` — only failure cases
+    show up here. ``upstream_ref`` carries Ollama's ``(ref: ...)``
+    identifier when the upstream wrapped one in its 5xx response;
+    omitted otherwise.
+    """
+
+    model: str
+    status: Literal[
+        "timeout", "http_5xx", "http_4xx", "degraded_empty_response"
+    ]
+    upstream_ref: Optional[str] = None
+
+
+class RunValidationError(_FrontendModel):
+    """Structured 400 body returned when a pre-flight model probe fails.
+
+    The flat string the previous validator returned wasn't actionable
+    enough — the frontend has no way to render "kimi-k2-thinking is
+    timing out, here are 3 known-good models you could switch to"
+    from a plain ``detail: str``. This shape gives the UI everything
+    it needs to surface a recoverable error.
+
+    Wire into FastAPI as::
+
+        raise HTTPException(
+            status_code=400,
+            detail=RunValidationError(...).model_dump(),
+        )
+    """
+
+    code: Literal["upstream_model_unhealthy"]
+    message: str
+    unhealthy_models: list[UnhealthyModel]
+    suggested_alternatives: list[str]
 
 
 class HealthResponse(_FrontendModel):
@@ -440,12 +507,16 @@ __all__ = [
     "InvestmentDebateEvent",
     "RiskDebateEvent",
     "StatsEvent",
+    "LlmCallPendingEvent",
     "RunCompletedEvent",
     "RunFailedEvent",
     "RunCancelledEvent",
     "RunEvent",
     # Announcements
     "Announcement",
+    # Run validation
+    "UnhealthyModel",
+    "RunValidationError",
     # Health
     "OllamaHealth",
     "HealthResponse",

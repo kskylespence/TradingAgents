@@ -94,6 +94,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        observer: Optional[Any] = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -102,10 +103,17 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            observer: Optional :class:`tradingagents.run_observer.RunObserver`.
+                When set, the underlying OpenAI-compatible clients emit
+                ``llm_call_pending`` heartbeats (Layer 4) via
+                ``observer.emit_llm_call_pending`` so the web UI can show
+                slow calls before they hit the retry envelope. CLI runs
+                pass ``None`` and pay no cost.
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.observer = observer
 
         # Update the interface's config
         set_config(self.config)
@@ -136,7 +144,17 @@ class TradingAgentsGraph:
 
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
-        
+
+        # Attach the run observer to both LLM clients so their heartbeat
+        # wrappers can emit ``llm_call_pending`` events while a single
+        # call is outstanding. The setter is a no-op when the client
+        # doesn't expose ``set_observer`` (non-OpenAI providers like
+        # Anthropic/Google) so this stays safe to call unconditionally.
+        if self.observer is not None:
+            for llm in (self.deep_thinking_llm, self.quick_thinking_llm):
+                if hasattr(llm, "set_observer"):
+                    llm.set_observer(self.observer)
+
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes

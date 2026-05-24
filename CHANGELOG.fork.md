@@ -16,6 +16,73 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **Pre-flight liveness probe on `POST /api/runs` and `/retry`.** A
+  real CRM run on 2026-05-22
+  (`5ee02744-f384-4db4-8332-f84a3a8e3990`) hung for 56 minutes 34
+  seconds because the engine was committed to a `kimi-k2-thinking`
+  quick-think model that Ollama Cloud could not respond to — the
+  one-click Retry above turns "fix the form" into "fix the long wait",
+  but nothing was checking model liveness *before* the engine launched.
+  The new `app.services.ollama_models.probe_model_liveness(model_id)`
+  issues `POST {OLLAMA_BASE_URL}/chat/completions` with a no-op `ping`
+  tool function and `tool_choice="auto"` (deliberately exercising the
+  failure surface from `ollama/ollama#14542` — 500s emerge only when
+  `tools=[…]` is present), 15-second read timeout, and reasoning-aware
+  `max_completion_tokens` (200 for `requires_reasoning_split` or
+  `"thinking"`-in-model-id; 1 otherwise — thinking models need budget
+  to think before emitting a token). Result is one of
+  `ok` / `timeout` / `http_5xx` / `http_4xx` /
+  `degraded_empty_response` (the last when HTTP 200 returns empty
+  content with no tool_calls and a non-`stop` finish_reason — a real
+  failure mode for OpenAI-SDK consumers). 5xx responses are scanned for
+  Ollama's `(ref: <uuid>)` upstream correlation ID. Cache TTL is 60s
+  for healthy entries, 30s for unhealthy entries — long enough to
+  dedup two POSTs in quick succession, short enough that recovery is
+  reflected promptly. The router's existing
+  `_validate_models_against_catalog` was refactored to
+  `_validate_and_probe` and is called from BOTH `POST /api/runs` and
+  `POST /api/runs/{id}/retry` so retrying a failed run cannot re-stage
+  the original hang. On probe failure the 400 returns a structured
+  `RunValidationError` (`code: upstream_model_unhealthy`,
+  `unhealthy_models[]`, `suggested_alternatives[]`); the alternatives
+  list is the intersection of `CURATED_2026_05`, the cached
+  `/v1/models` listing, and the cached-healthy set (sorted
+  alphabetically with `glm-5` pinned first when present, max 3). The
+  frontend `OllamaUpstreamAlert` was extended with a `validation` prop
+  that renders unhealthy models + ref IDs + clickable alternative
+  badges; `NewRun.tsx` captures the 400 detail on mutation `onError`.
+  Tests: `web/backend/tests/test_runs_preflight_probe.py` (10),
+  `web/frontend/src/__tests__/OllamaUpstreamAlert.validation.test.tsx`
+  (6).
+
+- **In-run heartbeat for slow LLM calls (`llm_call_pending` SSE
+  event).** Defense-in-depth on top of the pre-flight probe above. The
+  56-minute hang above completed *7 successful LLM calls* before the
+  8th stalled — proof that a probe-time healthy model can degrade
+  mid-run, and that even a perfect pre-flight check cannot prevent the
+  long-silent-then-fail UX on its own. The new wrapper around
+  `NormalizedChatOpenAI.ainvoke` / `.invoke` emits an
+  `llm_call_pending` event every 30 seconds while a call is pending,
+  with `model`, `agent` (e.g. *"Fundamentals Analyst"*),
+  `elapsed_seconds`, and `soft_warning: true` once elapsed ≥ 90s.
+  `WebRunObserver.emit_progress` already had the
+  thread-safe-from-worker plumbing (it uses
+  `run_coroutine_threadsafe` when called off the main loop), so the
+  heartbeat reuses that path. `agent_hint` is plumbed through
+  `GraphSetup` and `trading_graph.py` so each LangGraph node tags its
+  LLM calls with the role currently running. The frontend `RunView.tsx`
+  renders the latest heartbeat as an inline status row beneath the
+  active agent (*"Fundamentals Analyst waiting on kimi-k2-thinking…
+  90s — provider may be unhealthy"*); the row is replaced when the
+  next non-heartbeat event arrives. Users can now react to a stall
+  within a minute rather than waiting 30+ minutes for the retry
+  envelope to exhaust before seeing any error. The existing
+  `GLOBAL_RUN_LOCK` + cancel path is unchanged — heartbeats are
+  observational, not interventional. Tests:
+  `tests/test_llm_call_heartbeat.py` (Python, fake-clock based to
+  avoid sleeping in CI),
+  `web/frontend/src/__tests__/RunView.heartbeat.test.tsx` (3).
+
 - **One-click Retry button on failed and cancelled runs.** Until now,
   every transient upstream LLM failure forced the user back to
   `NewRun.tsx` to re-fill ticker, date, provider, models, analysts,
@@ -54,6 +121,60 @@ for the per-deploy cut workflow.
   `test_settings_rejects_malformed_admin_password_hash_b64`.
 
 ### Changed
+
+- **Per-model `read_timeout_seconds` for reasoning/thinking models.**
+  The 120-second global read-timeout added in the previous hardening
+  pass is the right floor for fast models but a hostile ceiling for
+  reasoning models — `kimi-k2-thinking`, `gpt-oss:120b` with
+  `reasoning_effort != "none"`, and `deepseek-v3.2` in reasoning mode
+  can legitimately need 2–4 minutes per call when responding
+  correctly, and the previous 120s cap turned every healthy slow call
+  into a timeout that grew (via 5 SDK retries + LangGraph node retries)
+  into a 30+ minute envelope. The `ModelCapabilities` dataclass in
+  `tradingagents/llm_clients/capabilities.py` gained an optional
+  `read_timeout_seconds: int | None` field, populated for the known
+  reasoning models (`kimi-k2-thinking` / `kimi-k2.5` / `kimi-k2.6` →
+  300; `gpt-oss:120b` / `gpt-oss:20b` → 300; `deepseek-v3.2` → 240),
+  with `_BY_PATTERN` regex coverage for forward-compat
+  (`^kimi-k2.*-thinking$`, `^.+:thinking$`). Precedence in
+  `openai_client._construct_timeout` is **env `TRADINGAGENTS_LLM_READ_TIMEOUT`
+  > capability override > 120s default** — operators who deliberately
+  set a deploy-wide tight latency budget still win. The frozen
+  dataclass is back-compat: existing `ModelCapabilities(...)`
+  constructor calls without `read_timeout_seconds` still work. Tests:
+  `tests/test_per_model_timeout.py` (7).
+
+- **Curated Ollama Cloud catalog flag + UI deprioritization signal.**
+  Two related concerns surfaced once the live model discovery from the
+  previous Ollama-Cloud fix started returning ~39 models from
+  `/v1/models` — Ollama Cloud's curated lineup (visible at
+  `https://ollama.com/search?c=cloud`) is roughly half of what
+  `/v1/models` advertises, and models *not* in the curated view tend
+  to be older or de-prioritized SKUs with known reliability issues
+  (`kimi-k2-thinking` is the smoking gun, but `qwen3-coder:480b`,
+  `gemma3:4b` and several others match the pattern; see
+  `ollama/ollama#15453` for the 95% failure rate snapshot). New
+  `app.services.ollama_curated.CURATED_2026_05` frozenset captures
+  the active cloud catalog as of 2026-05-23 (refresh quarterly).
+  `is_curated(model_id) -> bool` is reused by both the catalog flag
+  and the pre-flight probe's `suggested_alternatives` algorithm.
+  `/api/catalog/models?provider=ollama` now emits `curated: bool` on
+  each model (`CatalogModel.curated: Optional[bool]`), and
+  `response_model_exclude_none=True` on the endpoint keeps non-Ollama
+  responses from leaking the field. Frontend `NewRun.tsx` uses a new
+  `<ModelOptionLabel>` + `sortCuratedFirst()` extracted into
+  `web/frontend/src/components/ModelOptionLabel.tsx` (the
+  jsdom-hang-friendly extraction pattern that `OllamaUpstreamAlert`
+  established earlier) — curated models sort first; non-curated render
+  with a `⚠` prefix and a tooltip naming three safer alternatives
+  (*"Not in Ollama's active cloud catalog. May have reliability
+  issues — consider glm-5, kimi-k2.6, or glm-5.1."*). `undefined`
+  curated is treated as curated so older backends and non-Ollama
+  providers don't get retroactive warning badges. Explicitly: we do
+  NOT hide deprioritized models — they're still legitimately
+  selectable, just risky. Tests:
+  `web/backend/tests/test_catalog_curated_flag.py` (5),
+  `web/frontend/src/__tests__/NewRun.curated.test.tsx` (8).
 
 - **Per-provider `max_retries` defaults for OpenAI-compatible LLM
   clients.** The vendored OpenAI SDK defaults to `max_retries=2` with

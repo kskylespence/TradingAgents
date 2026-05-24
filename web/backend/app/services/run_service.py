@@ -508,6 +508,7 @@ async def _run_engine(
         list(req.analysts),
         config=config,
         debug=False,
+        observer=observer,
     )
 
     # Canonical init_state — see cli/main.py:984-988.

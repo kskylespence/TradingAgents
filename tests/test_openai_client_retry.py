@@ -27,10 +27,17 @@ def _reload_client():
     return importlib.reload(mod)
 
 
-def _build(provider: str, **kwargs):
-    """Construct a ChatOpenAI through OpenAIClient for the given provider."""
+def _build(provider: str, model: str = "gpt-4.1", **kwargs):
+    """Construct a ChatOpenAI through OpenAIClient for the given provider.
+
+    The default ``model`` is intentionally a non-reasoning model so the
+    per-provider retry / timeout invariants exercised here are not
+    perturbed by the per-model ``read_timeout_seconds`` overrides for
+    reasoning models like ``kimi-k2-thinking``. Tests that need a
+    reasoning model can pass ``model=`` explicitly.
+    """
     mod = _reload_client()
-    client = mod.OpenAIClient(model="kimi-k2-thinking", provider=provider, **kwargs)
+    client = mod.OpenAIClient(model=model, provider=provider, **kwargs)
     return client.get_llm()
 
 
