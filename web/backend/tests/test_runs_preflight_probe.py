@@ -54,38 +54,6 @@ CSRF_TOKEN = "test-csrf-token-preflight"
 # --------------------------------------------------------------------------- #
 
 
-class _ProbeFakeResponse:
-    """Minimal ``httpx.Response`` stand-in for the chat/completions probe."""
-
-    def __init__(self, status_code: int, payload: Any) -> None:
-        self.status_code = status_code
-        self._payload = payload
-
-    def json(self) -> Any:
-        return self._payload
-
-    def raise_for_status(self) -> None:
-        # The list-models GET path calls ``raise_for_status`` to translate
-        # 4xx/5xx into HTTPStatusError. The probe POST path inspects
-        # ``status_code`` directly without this hook (the probe builds
-        # its own status mapping). Both behaviours are exercised here.
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError(
-                f"HTTP {self.status_code}", request=None, response=self  # type: ignore[arg-type]
-            )
-
-    @property
-    def text(self) -> str:
-        # The probe path inspects response.text for 5xx upstream-ref
-        # extraction (Ollama wraps the upstream id in the error body).
-        import json
-
-        try:
-            return json.dumps(self._payload)
-        except Exception:
-            return str(self._payload)
-
-
 def _install_probe_fake(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -99,8 +67,9 @@ def _install_probe_fake(
     # sane curated set so the alternatives logic has something to chew on.
     models_listing: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    """Install a fake httpx.AsyncClient covering BOTH the GET /models
-    catalog endpoint AND the POST /chat/completions probe endpoint.
+    """Install a mock transport on the shared ``upstream_http`` client covering
+    BOTH the GET /models catalog endpoint AND the POST /chat/completions
+    probe endpoint.
 
     Returns a recorder dict the test asserts against::
 
@@ -110,6 +79,12 @@ def _install_probe_fake(
     The probe is keyed on the ``model`` field of the JSON body, so a
     test can simulate "quick is healthy, deep is sick" by routing each
     model to a different spec.
+
+    Implementation note (v0.2.5+hf.4): ``ollama_models`` now routes
+    through ``upstream_http`` (a shared singleton client with retry +
+    breaker). We mock at the transport layer so all the production
+    wiring stays exercised; the transport just returns deterministic
+    responses keyed by URL path.
     """
     record: dict[str, Any] = {"probe_calls": [], "list_calls": 0}
     responses = responses or {}
@@ -133,54 +108,57 @@ def _install_probe_fake(
             ],
         }
 
-    def _build_response(spec: Any, model_id: str) -> _ProbeFakeResponse:
+    def _build_probe_response(
+        spec: Any, model_id: str, request: httpx.Request
+    ) -> httpx.Response:
         if spec is None:
-            return _ProbeFakeResponse(200, _default_healthy_completion(model_id))
+            return httpx.Response(
+                200, json=_default_healthy_completion(model_id), request=request
+            )
         if isinstance(spec, dict) and "raise" in spec:
             raise spec["raise"]
         if isinstance(spec, dict) and "status" in spec:
-            return _ProbeFakeResponse(spec["status"], spec.get("payload", {}))
+            return httpx.Response(
+                spec["status"], json=spec.get("payload", {}), request=request
+            )
         # Otherwise treat spec as a literal 200 payload (an OpenAI
         # completion shape — used for healthy / degraded-empty cases).
-        return _ProbeFakeResponse(200, spec)
+        return httpx.Response(200, json=spec, request=request)
 
-    class _FakeClient:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        async def __aenter__(self) -> "_FakeClient":
-            return self
-
-        async def __aexit__(self, *_exc: Any) -> None:
-            return None
-
-        async def get(
-            self, url: str, headers: dict[str, str] | None = None
-        ) -> _ProbeFakeResponse:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        url_path = request.url.path
+        if url_path.endswith("/models"):
             record["list_calls"] += 1
-            return _ProbeFakeResponse(
+            return httpx.Response(
                 200,
-                {"object": "list", "data": [{"id": m} for m in models_listing]},
+                json={
+                    "object": "list",
+                    "data": [{"id": m} for m in models_listing],
+                },
+                request=request,
             )
+        if "chat/completions" in url_path:
+            import json as _json
 
-        async def post(
-            self,
-            url: str,
-            *,
-            json: dict[str, Any] | None = None,
-            headers: dict[str, str] | None = None,
-        ) -> _ProbeFakeResponse:
-            body = json or {}
+            try:
+                body = _json.loads(request.content or b"{}")
+            except Exception:
+                body = {}
             model_id = body.get("model")
             record["probe_calls"].append({"model": model_id, "payload": body})
             spec = responses.get(model_id)
-            return _build_response(spec, model_id)
+            return _build_probe_response(spec, model_id, request)
+        return httpx.Response(
+            404, json={"error": "unknown path"}, request=request
+        )
 
-    # The probe lives in the same module as the list, so we monkey-patch
-    # the same `httpx.AsyncClient`. Both list and probe share the patched
-    # client — the probe routes via `.post`, the list routes via `.get`.
-    monkeypatch.setattr(
-        "app.services.ollama_models.httpx.AsyncClient", _FakeClient
+    from app.services import ollama_models, upstream_http
+
+    # Reset state so prior tests' breaker/cache don't leak in.
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler),
+        timeout=httpx.Timeout(5.0),
     )
     return record
 

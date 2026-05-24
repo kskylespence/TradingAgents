@@ -16,6 +16,127 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **Shared resilient HTTP client (`app.services.upstream_http`).** Every
+  outbound call to Ollama (catalog list + per-model liveness probe) now
+  routes through a single singleton `httpx.AsyncClient` wired with
+  HTTP/2, `Limits(max_keepalive=10, max_connections=20,
+  keepalive_expiry=30s)`, and `Timeout(connect=10, read=15, write=10,
+  pool=10)`. Three resilience layers wrap it:
+  (1) **tenacity** retries on transient transport errors
+  (`ConnectError`, `ConnectTimeout`, `ReadTimeout`, `WriteTimeout`,
+  `RemoteProtocolError`, `PoolTimeout`) and on 429 / 5xx responses,
+  with `wait_exponential_jitter(initial=0.5, max=8.0)`,
+  `stop_after_attempt(3) | stop_after_delay(25s)`;
+  (2) **`Retry-After` header honouring** — both integer-seconds and
+  HTTP-date forms (RFC 7231 §7.1.3) are parsed and slept verbatim
+  before the next retry, capped at 30s, so we obey Ollama Cloud's own
+  backpressure signal instead of amplifying it;
+  (3) **circuit breaker** (`circuitbreaker.CircuitBreaker`) that opens
+  after 5 consecutive failures, stays open for 30s, then half-opens
+  for one trial probe before closing. The motivation is the documented
+  Ollama Cloud instability (`ollama/ollama#14673` Mar 2026 reliability
+  degradation, `#15419` frequent 503 bursts, `#15910` mid-call
+  connection resets, `#13770` client-side ConnectTimeout) — Ollama
+  has not published a status page, so the app must absorb upstream
+  chaos by design. The previous catalog path used `connect=2.0s` with
+  no retry; a single TCP RTT spike flipped the user-visible alert red
+  until the next 30s poll. Layered logging at every transition —
+  `upstream_http.retry_attempt`, `upstream_http.retry_after_honored`,
+  `upstream_http.circuit_opened/half_open_probe/closed` — gives
+  operators grep-friendly triage. Tests:
+  `web/backend/tests/test_upstream_http.py` (9).
+
+- **Hysteresis on `last_probe_status()` (`app.services.ollama_models`).**
+  A rolling-3 deque of attempt outcomes per `base_url`; status flips
+  to `"down"` only when 2-of-3 recent attempts failed. THIS is the
+  load-bearing user-visible change of v0.2.5+hf.4: a single 2-second
+  TCP spike used to flash the red alert until the next poll cycle.
+  After hysteresis, single transients are absorbed silently while two
+  failures in a row legitimately reports `"down"`. Companion
+  `recent_attempts()` exposes the deque as a list-of-dicts for the
+  health endpoint so the UI can render a "last 3 polls" indicator.
+  Tests: `web/backend/tests/test_ollama_models_resilience.py` (8).
+
+- **Stale-while-revalidate in `list_ollama_models()`.** When the cache
+  is populated but expired (>5min), the function returns the stale
+  list IMMEDIATELY and spawns a background refresh task. The
+  user-facing catalog endpoint stays snappy (no cold-fetch latency
+  every 5 minutes); the cache renews concurrently. `_in_flight_refresh`
+  deduplicates concurrent stale-serve requests so we never schedule
+  parallel refreshes for the same base_url.
+
+- **Lifespan `upstream_warmup` hook
+  (`web/backend/app/lifespan_hooks/upstream_warmup.py`).** On startup:
+  spawns a fire-and-forget `list_ollama_models()` call (20-second
+  internal timeout) so the singleton client's DNS + TLS handshake to
+  Ollama Cloud is paid before the first user-facing request hits it.
+  Also spawns a background refresh loop running `list_ollama_models()`
+  every 240 seconds (just before the 5-min cache TTL boundary) so the
+  cache never goes cold during steady-state operation. On shutdown:
+  cancels the refresh task, awaits it, then `upstream_http.close_client()`
+  to release the pool. Warmup MUST NOT block startup — pathological
+  hangs in `list_ollama_models` are bounded by `asyncio.wait_for` and
+  the app starts anyway. Tests:
+  `web/backend/tests/test_lifespan_upstream_warmup.py` (3).
+
+- **Per-run wall-clock safety net
+  (`TRADINGAGENTS_RUN_MAX_SECONDS`).** `app.services.run_service._run_async`
+  now wraps the engine call in `asyncio.wait_for(_run_engine(...),
+  timeout=run_max)` with a default of 1800 seconds (30 minutes). On
+  `asyncio.TimeoutError` the cooperative `cancel_event` is set so the
+  engine's worker thread stops cleanly at the next chunk boundary,
+  the run is marked `failed` with a clear "exceeded
+  TRADINGAGENTS_RUN_MAX_SECONDS" error, and `GLOBAL_RUN_LOCK` is
+  released by the existing `finally:` cleanup so the next run can
+  proceed. This is the outer safety net for the deadlock surface the
+  Layer-4 heartbeat could observe but not kill — without it, a hung
+  LLM call holds the single-concurrent-run lock indefinitely
+  (the 2026-05-22 56-minute hang in commit `2ccfeda` could have
+  blocked every subsequent run if the user hadn't cancelled
+  manually). Tests:
+  `web/backend/tests/test_run_service_timeout.py` (2).
+
+### Changed
+
+- **`/api/health` Ollama block enriched with `recent_attempts` +
+  `circuit_state`.** Backwards-compatible additive fields on the
+  existing `ollama: {...}` subblock. `recent_attempts` is a list of
+  the last-3 probe outcomes (`{at, ok, error}`) so the UI can render
+  a "last 3 polls" indicator; `circuit_state` is one of `"closed" |
+  "open" | "half_open"` so the frontend can render a yellow
+  "recovering" pill during half-open or a "cooling down" notice
+  during open instead of the binary red-or-nothing alert. Schemas:
+  `app.schemas.OllamaHealth` + `app.schemas.OllamaAttempt` (new).
+  Frontend mirror: `web/frontend/src/lib/types.ts`.
+
+- **`OllamaUpstreamAlert.tsx` renders three calibrated states.**
+  `closed` + `status: "ok"` → no alert; `closed` + `status: "down"`
+  → existing red sustained-outage alert (now only fires after
+  hysteresis confirms 2-of-3 failures, not on a single transient);
+  `half_open` → yellow "recovering — upstream cooling down" pill
+  (`role="status"`, amber palette); `open` → red "upstream in
+  cool-down" with explanation of the breaker behavior. The
+  validation-error branch is unchanged. Tests:
+  `web/frontend/src/__tests__/OllamaUpstreamAlert.circuit.test.tsx` (3).
+
+### Fixed
+
+- **The catalog/health probe no longer flaps on a single transient.**
+  Pre-`hf.4` symptom: `/api/health` polled every 30s; one
+  `ConnectTimeout('')` (2-second TCP timeout against `ollama.com/v1`)
+  flipped `ollama.status` to `"down"`, surfacing the red
+  `OllamaUpstreamAlert` on NewRun. Combined with the wider connect
+  timeout (10s vs 2s), retry-on-transient, and 2-of-3 hysteresis, a
+  single transient is now absorbed silently. The four-layer defense
+  added in `2ccfeda` (v0.2.5+hf.3) hardened the *run* pipeline; this
+  pass hardens the *health/catalog* pipeline to the same standard.
+
+- **`GLOBAL_RUN_LOCK` no longer holds indefinitely on a stuck run.**
+  See "Per-run wall-clock safety net" above. The 30-minute timeout
+  ensures the lock is always released within a bounded window even
+  when every other resilience layer fails.
+
+
 - **Pre-flight liveness probe on `POST /api/runs` and `/retry`.** A
   real CRM run on 2026-05-22
   (`5ee02744-f384-4db4-8332-f84a3a8e3990`) hung for 56 minutes 34

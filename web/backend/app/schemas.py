@@ -384,26 +384,52 @@ class Announcement(_FrontendModel):
 # --------------------------------------------------------------------------- #
 
 
+class OllamaAttempt(_FrontendModel):
+    """One entry in ``OllamaHealth.recent_attempts``.
+
+    The health endpoint exposes the last-3 probe outcomes so the
+    frontend can render a small "last 3 polls" indicator next to the
+    upstream-alert badge. ``at`` is an ISO8601 wallclock approximation
+    (derived from the monotonic timestamp + current wallclock); ``error``
+    is the ``repr(exc)`` of the failure (None on success).
+    """
+
+    at: str
+    ok: bool
+    error: Optional[str] = None
+
+
 class OllamaHealth(_FrontendModel):
     """Per-provider health subblock returned by `/api/health` when ollama is active.
 
     ``status`` distinguishes three cases:
 
-    * ``"ok"``      — last upstream probe succeeded. ``model_count`` is the
-                      real count (which can legitimately be ``0`` for an
-                      account with no models provisioned — that's still "ok").
-    * ``"down"``    — last upstream probe failed (timeout / 4xx / 5xx).
-                      ``error`` carries the underlying exception repr for
-                      ops triage. ``model_count`` is ``None``.
+    * ``"ok"``      — last upstream probe succeeded OR a single recent
+                      failure with two prior successes (hysteresis;
+                      ``model_count`` is the real count, which can
+                      legitimately be ``0`` for an account with no
+                      models provisioned — that's still "ok").
+    * ``"down"``    — 2-of-3 recent probes failed (sustained outage).
+                      ``error`` carries the underlying exception repr
+                      for ops triage. ``model_count`` is ``None``.
     * ``"unknown"`` — no probe has been attempted yet in this process
                       (cold start before the catalog endpoint has been
                       hit). Both ``model_count`` and ``error`` are ``None``.
+
+    v0.2.5+hf.4 added:
+    * ``recent_attempts`` — the rolling-3 attempt log driving the
+      hysteresis. Used by the UI to render a "last 3 polls" indicator.
+    * ``circuit_state`` — the breaker's state (closed / open /
+      half_open) so the frontend can render a yellow "recovering" pill
+      during half-open instead of the red alert.
     """
 
     status: Literal["ok", "down", "unknown"]
     url: str
     model_count: Optional[int] = None
     error: Optional[str] = None
+    recent_attempts: list[OllamaAttempt] = Field(default_factory=list)
+    circuit_state: Literal["closed", "open", "half_open"] = "closed"
 
 
 class UnhealthyModel(_FrontendModel):
@@ -518,6 +544,7 @@ __all__ = [
     "UnhealthyModel",
     "RunValidationError",
     # Health
+    "OllamaAttempt",
     "OllamaHealth",
     "HealthResponse",
 ]

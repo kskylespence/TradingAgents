@@ -85,6 +85,22 @@ log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
+# Wall-clock safety net                                                       #
+# --------------------------------------------------------------------------- #
+
+#: Hard ceiling on how long a single run is allowed to hold
+#: ``GLOBAL_RUN_LOCK``. If the engine hangs beyond this — usually because
+#: an upstream LLM provider stopped responding mid-stream — the lifecycle
+#: aborts with a clear error so the lock is released and the operator can
+#: queue another run. Overridable via the ``TRADINGAGENTS_RUN_MAX_SECONDS``
+#: env var. Default 30 minutes: long enough for a deep ``research_depth=5``
+#: run on a slow local model, short enough that a stuck cloud call won't
+#: brick the UI for an hour. The 56-minute hang on 2026-05-22 is the
+#: motivating incident (see commit 2ccfeda).
+RUN_MAX_SECONDS_DEFAULT = 1800.0
+
+
+# --------------------------------------------------------------------------- #
 # Friendly error formatting                                                   #
 # --------------------------------------------------------------------------- #
 
@@ -393,9 +409,39 @@ async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
                 )
 
                 # ---- engine loop ------------------------------------- #
+                # Wall-clock safety net: a hung LLM call must not hold
+                # GLOBAL_RUN_LOCK indefinitely. ``asyncio.wait_for``
+                # raises ``TimeoutError`` when the deadline lapses. We
+                # also set ``cancel_event`` so the engine's worker-thread
+                # ``stream_run`` loop can stop cooperatively at the next
+                # chunk boundary (the asyncio cancellation alone does
+                # NOT interrupt the synchronous worker thread).
                 try:
-                    final_state = await _run_engine(
-                        req, asset_type, observer, cancel_event
+                    run_max = float(
+                        os.environ.get(
+                            "TRADINGAGENTS_RUN_MAX_SECONDS",
+                            str(RUN_MAX_SECONDS_DEFAULT),
+                        )
+                    )
+                except ValueError:
+                    run_max = RUN_MAX_SECONDS_DEFAULT
+                try:
+                    final_state = await asyncio.wait_for(
+                        _run_engine(req, asset_type, observer, cancel_event),
+                        timeout=run_max,
+                    )
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "run_service.timeout",
+                        extra={"run_id": str(run_id), "limit_seconds": run_max},
+                    )
+                    # Signal the engine to stop cleanly at the next chunk
+                    # boundary even though wait_for has given up on it.
+                    cancel_event.set()
+                    failed_error = (
+                        f"Run exceeded TRADINGAGENTS_RUN_MAX_SECONDS "
+                        f"({int(run_max)}s) — upstream likely stuck. "
+                        "See logs and consider switching models."
                     )
                 except asyncio.CancelledError:
                     # External task.cancel() — translate to "user cancelled".

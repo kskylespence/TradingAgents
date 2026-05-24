@@ -30,23 +30,6 @@ import pytest
 # missing `data` keys) that the simpler shared helper deliberately abstracts.
 
 
-class _FakeResponse:
-    """Minimal `httpx.Response` stand-in covering what the service uses."""
-
-    def __init__(self, json_data: Any, status: int = 200) -> None:
-        self._json = json_data
-        self.status_code = status
-
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError(
-                f"HTTP {self.status_code}", request=None, response=self  # type: ignore[arg-type]
-            )
-
-    def json(self) -> Any:
-        return self._json
-
-
 def _install_fake_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -54,39 +37,37 @@ def _install_fake_client(
     status: int = 200,
     raise_exc: BaseException | None = None,
 ) -> dict[str, Any]:
-    """Replace `httpx.AsyncClient` in the service module with a recording stub.
+    """Install a mock transport on the shared ``upstream_http`` client.
 
     Returns a `stats` dict the test can inspect:
-      - `calls`: how many `get(...)` invocations happened
-      - `last_url`: URL passed to the last `get`
-      - `last_headers`: headers dict from the last `get`
+      - `calls`: how many requests were issued
+      - `last_url`: URL of the last request
+      - `last_headers`: headers dict of the last request
+
+    Implementation note (v0.2.5+hf.4): ``ollama_models`` now routes
+    through ``upstream_http``, which owns a singleton ``httpx.AsyncClient``.
+    We plant a ``MockTransport`` on that singleton so retries / circuit
+    breaker / timeout policy all stay exercised but transport responses
+    are deterministic. The control surface is unchanged from the caller's
+    perspective — same ``stats`` dict, same kwargs.
     """
     stats: dict[str, Any] = {"calls": 0, "last_url": None, "last_headers": None}
 
-    class _FakeClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            # Accept and ignore `timeout=...` etc. — we don't validate construction.
-            pass
+    def _handler(request: httpx.Request) -> httpx.Response:
+        stats["calls"] += 1
+        stats["last_url"] = str(request.url)
+        stats["last_headers"] = dict(request.headers)
+        if raise_exc is not None:
+            raise raise_exc
+        return httpx.Response(status, json=response_json, request=request)
 
-        async def __aenter__(self) -> "_FakeClient":
-            return self
+    from app.services import ollama_models, upstream_http
 
-        async def __aexit__(self, *args: Any) -> None:
-            return None
-
-        async def get(
-            self, url: str, headers: dict[str, str] | None = None
-        ) -> _FakeResponse:
-            stats["calls"] += 1
-            stats["last_url"] = url
-            stats["last_headers"] = headers
-            if raise_exc is not None:
-                raise raise_exc
-            return _FakeResponse(response_json, status=status)
-
-    from app.services import ollama_models
-
-    monkeypatch.setattr(ollama_models.httpx, "AsyncClient", _FakeClient)
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler),
+        timeout=httpx.Timeout(5.0),
+    )
     return stats
 
 
@@ -218,7 +199,13 @@ async def test_auth_header_when_api_key_set(monkeypatch: pytest.MonkeyPatch) -> 
 
     await list_ollama_models()
     headers = stats["last_headers"] or {}
-    assert headers.get("Authorization") == "Bearer secret-key-xyz"
+    # httpx.MockTransport normalises header names to lowercase; the
+    # legacy stub preserved case. Either form is wire-equivalent (HTTP
+    # header names are case-insensitive per RFC 7230 §3.2).
+    assert (
+        headers.get("Authorization") == "Bearer secret-key-xyz"
+        or headers.get("authorization") == "Bearer secret-key-xyz"
+    )
 
 
 async def test_url_appends_models_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,16 +284,30 @@ async def test_last_probe_status_ok_after_successful_fetch(
 async def test_last_probe_status_down_after_failed_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Failed fetch -> status is 'down' and error carries the repr."""
+    """Sustained failures -> status is 'down' and error carries the repr.
+
+    Hysteresis (added in v0.2.5+hf.4): a single failure no longer flips
+    the status — the user-visible alert needs 2-of-3 recent attempts to
+    fail before reporting "down". This test drives three failures to
+    cross the threshold deterministically.
+    """
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.example.com/v1")
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     _install_fake_client(monkeypatch, raise_exc=httpx.ConnectError("boom"))
 
+    from app.services import ollama_models
     from app.services.ollama_models import last_probe_status, list_ollama_models
 
-    await list_ollama_models()
+    # Each list_ollama_models call hits the cold path (no cache) so each
+    # one issues a real transport request and records an attempt.
+    # Expire any cache between calls so subsequent attempts go through.
+    for _ in range(3):
+        await list_ollama_models()
+        # Force the next call to skip cache-hit short-circuit if any.
+        ollama_models._cache.clear()
     status, error = last_probe_status()
     assert status == "down"
+    assert error is not None and "ConnectError" in error
     assert error is not None and "boom" in error
 
 

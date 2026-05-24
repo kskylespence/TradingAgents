@@ -58,10 +58,17 @@ def test_health_outer_status_stays_ok_when_ollama_down(
     Mirrors the DB-down behavior: degradation is signalled in the body
     (`ollama.status=down`) but the outer `status` stays `"ok"` so the
     container itself stays healthy.
+
+    v0.2.5+hf.4: hysteresis means a single failure no longer flips
+    ``ollama.status`` to ``"down"`` — the alert needs 2-of-3 failures
+    to fire. We hit ``/api/health`` 3 times (clearing the cache between
+    each so the underlying probe actually fires) so the hysteresis
+    threshold is crossed deterministically.
     """
     import httpx
 
     from app.config import get_settings
+    from app.services import ollama_models
 
     get_settings.cache_clear()
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
@@ -73,7 +80,12 @@ def test_health_outer_status_stays_ok_when_ollama_down(
 
     app = _make_app_with_only_health_router()
     with TestClient(app) as client:
-        resp = client.get("/api/health")
+        # Three probes — by the third the hysteresis 2-of-3 threshold
+        # is reached and ``ollama.status`` flips to ``"down"``. Clear
+        # the cache between calls so each /api/health really probes.
+        for _ in range(3):
+            ollama_models._cache.clear()
+            resp = client.get("/api/health")
 
     assert resp.status_code == 200
     body = resp.json()

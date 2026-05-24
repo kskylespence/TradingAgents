@@ -374,16 +374,41 @@ export interface RunValidationError {
 
 // ----- Health (GET /api/health) -----
 
+/**
+ * One entry in `OllamaHealth.recent_attempts` — a rolling 3-attempt log
+ * exposed for the UI to render a "last 3 polls" indicator.
+ */
+export interface OllamaAttempt {
+  /** ISO8601 wallclock approximation of when the attempt was recorded. */
+  at: string;
+  ok: boolean;
+  error: string | null;
+}
+
 export interface OllamaHealth {
   /**
-   * `"ok"` — last upstream probe succeeded (model_count may legitimately be 0).
-   * `"down"` — last upstream probe failed; `error` carries the reason.
+   * `"ok"` — last probe succeeded, OR a single recent failure with two
+   *          prior successes (hysteresis added in v0.2.5+hf.4).
+   * `"down"` — 2-of-3 recent probes failed; sustained outage.
    * `"unknown"` — no probe attempted yet in this process.
    */
   status: "ok" | "down" | "unknown";
   url: string;
   model_count: number | null;
   error: string | null;
+  /**
+   * v0.2.5+hf.4: rolling-3 attempt log driving the hysteresis. Each
+   * entry shows when an attempt was made and whether it succeeded.
+   * Default to an empty array if absent (older backends).
+   */
+  recent_attempts: OllamaAttempt[];
+  /**
+   * v0.2.5+hf.4: circuit-breaker state for the shared upstream client.
+   * `"closed"` — normal; `"open"` — cooling down, requests
+   * short-circuit; `"half_open"` — one trial probe in flight after
+   * recovery_timeout elapsed.
+   */
+  circuit_state: "closed" | "open" | "half_open";
 }
 
 export interface HealthResponse {

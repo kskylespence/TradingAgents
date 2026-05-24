@@ -154,7 +154,7 @@ def install_fake_httpx_ollama(
     status: int = 200,
     raise_exc: Exception | None = None,
 ) -> dict:
-    """Install a fake ``httpx.AsyncClient`` for the ollama_models service.
+    """Install a fake httpx transport for the shared ``upstream_http`` client.
 
     Returns a ``dict`` recording calls — ``{"calls": int, "last_url": str|None,
     "last_headers": dict|None}`` — so tests can assert that the right URL
@@ -163,7 +163,7 @@ def install_fake_httpx_ollama(
     constructs the request, every test exercising the catalog/runs/health
     flows fails at once.
 
-    Covers BOTH endpoints exposed by the service:
+    Covers BOTH endpoints reachable via ``upstream_http.request``:
 
     * ``GET /v1/models`` — the catalog listing path (driven by ``ids``).
     * ``POST /v1/chat/completions`` — the model liveness probe path
@@ -171,82 +171,73 @@ def install_fake_httpx_ollama(
       healthy" so existing tests that don't care about probing keep
       working unchanged. Tests that *do* want a probe failure should
       use the more granular helper in ``test_runs_preflight_probe.py``.
+
+    Implementation note (v0.2.5+hf.4): we no longer monkeypatch
+    ``httpx.AsyncClient`` directly. ``ollama_models`` routes through
+    ``upstream_http`` which owns a singleton client; we replace that
+    client with one wired to an ``httpx.MockTransport`` so all the
+    retry/breaker/timeout production wiring stays exercised but the
+    transport responses are deterministic.
     """
     import httpx
 
+    from app.services import ollama_models, upstream_http
+
     record: dict = {"calls": 0, "last_url": None, "last_headers": None}
 
-    class _FakeResponse:
-        def __init__(self, status_code: int, payload: dict):
-            self.status_code = status_code
-            self._payload = payload
+    def _healthy_probe_payload(model_id: str) -> dict:
+        return {
+            "id": "chatcmpl-fake",
+            "object": "chat.completion",
+            "model": model_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "pong",
+                        "tool_calls": None,
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
 
-        def raise_for_status(self) -> None:
-            if self.status_code >= 400:
-                raise httpx.HTTPStatusError(
-                    f"HTTP {self.status_code}", request=None, response=self
-                )
+    def _handler(request: httpx.Request) -> httpx.Response:
+        record["calls"] += 1
+        record["last_url"] = str(request.url)
+        record["last_headers"] = dict(request.headers)
+        if raise_exc is not None:
+            raise raise_exc
 
-        def json(self) -> dict:
-            return self._payload
-
-        @property
-        def text(self) -> str:
+        url_path = request.url.path
+        if url_path.endswith("/models"):
+            return httpx.Response(
+                status,
+                json={
+                    "object": "list",
+                    "data": [{"id": x} for x in (ids or [])],
+                },
+                request=request,
+            )
+        if "chat/completions" in url_path:
             import json as _json
 
             try:
-                return _json.dumps(self._payload)
+                body = _json.loads(request.content or b"{}")
             except Exception:
-                return str(self._payload)
-
-    class _FakeClient:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return None
-
-        async def get(self, url, headers=None):
-            record["calls"] += 1
-            record["last_url"] = url
-            record["last_headers"] = dict(headers or {})
-            if raise_exc is not None:
-                raise raise_exc
-            return _FakeResponse(
-                status,
-                {"object": "list", "data": [{"id": x} for x in (ids or [])]},
+                body = {}
+            model_id = body.get("model", "")
+            return httpx.Response(
+                200, json=_healthy_probe_payload(model_id), request=request
             )
+        return httpx.Response(404, json={"error": "unknown"}, request=request)
 
-        async def post(self, url, *, json=None, headers=None):
-            # Default-healthy probe response for the pre-flight probe
-            # path (Layer 1). Tests that want a probe failure should
-            # install their own client via ``_install_probe_fake`` in
-            # ``test_runs_preflight_probe.py``.
-            model_id = (json or {}).get("model", "")
-            return _FakeResponse(
-                200,
-                {
-                    "id": "chatcmpl-fake",
-                    "object": "chat.completion",
-                    "model": model_id,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "pong",
-                                "tool_calls": None,
-                            },
-                            "finish_reason": "stop",
-                        }
-                    ],
-                },
-            )
-
-    monkeypatch.setattr(
-        "app.services.ollama_models.httpx.AsyncClient", _FakeClient
+    # Reset the singleton first so we drop any stale state from a prior
+    # test, then plant a mock-transport client.
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler),
+        timeout=httpx.Timeout(5.0),
     )
     return record

@@ -27,64 +27,50 @@ import pytest
 # scope of the shared `install_fake_httpx_ollama` helper.
 
 
-class _FakeResponse:
-    def __init__(self, json_data: Any, status: int = 200) -> None:
-        self._json = json_data
-        self.status_code = status
-
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError(
-                f"HTTP {self.status_code}", request=None, response=self  # type: ignore[arg-type]
-            )
-
-    def json(self) -> Any:
-        return self._json
-
-
 def _install_scripted_client(
     monkeypatch: pytest.MonkeyPatch, *script: dict[str, Any]
 ) -> dict[str, Any]:
-    """Install a `httpx.AsyncClient` stub that walks through `script`.
+    """Install a scripted ``MockTransport`` on the shared ``upstream_http`` client.
 
     Each entry is either::
 
         {"json": ..., "status": 200}     # successful response
-        {"raise": ConnectError("boom")}   # exception on `get`
+        {"raise": ConnectError("boom")}   # exception on the transport call
 
-    A `stats["calls"]` counter tracks invocations.
+    A ``state["calls"]`` counter tracks invocations.
+
+    Implementation note (v0.2.5+hf.4): ``ollama_models`` now routes
+    through ``upstream_http``. We plant the script-driven mock transport
+    on that singleton so the retry / circuit-breaker / timeout policy
+    all stay exercised against the deterministic responses.
     """
-    state = {"calls": 0, "last_url": None, "last_headers": None}
+    state: dict[str, Any] = {"calls": 0, "last_url": None, "last_headers": None}
     queue = list(script)
 
-    class _FakeClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+    def _handler(request: httpx.Request) -> httpx.Response:
+        state["calls"] += 1
+        state["last_url"] = str(request.url)
+        state["last_headers"] = dict(request.headers)
+        if not queue:
+            raise AssertionError(
+                f"Unexpected extra HTTP call #{state['calls']} to {request.url}"
+            )
+        step = queue.pop(0)
+        if "raise" in step:
+            raise step["raise"]
+        return httpx.Response(
+            step.get("status", 200),
+            json=step.get("json"),
+            request=request,
+        )
 
-        async def __aenter__(self) -> "_FakeClient":
-            return self
+    from app.services import ollama_models, upstream_http
 
-        async def __aexit__(self, *args: Any) -> None:
-            return None
-
-        async def get(
-            self, url: str, headers: dict[str, str] | None = None
-        ) -> _FakeResponse:
-            state["calls"] += 1
-            state["last_url"] = url
-            state["last_headers"] = headers
-            if not queue:
-                raise AssertionError(
-                    f"Unexpected extra HTTP call #{state['calls']} to {url}"
-                )
-            step = queue.pop(0)
-            if "raise" in step:
-                raise step["raise"]
-            return _FakeResponse(step.get("json"), status=step.get("status", 200))
-
-    from app.services import ollama_models
-
-    monkeypatch.setattr(ollama_models.httpx, "AsyncClient", _FakeClient)
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler),
+        timeout=httpx.Timeout(5.0),
+    )
     return state
 
 
@@ -128,6 +114,14 @@ async def test_after_success_failure_returns_last_good(
 
     second = await list_ollama_models()
     assert second == ["m1", "m2"], "failure after success must return last-good"
+
+    # v0.2.5+hf.4 stale-while-revalidate: the second call returns the
+    # cached list IMMEDIATELY and schedules a background refresh that
+    # consumes the second scripted entry (the 500 failure). Yield to the
+    # loop so the background task runs, then assert both transport
+    # calls happened.
+    import asyncio
+    await asyncio.sleep(0.05)
     assert stats["calls"] == 2
 
 

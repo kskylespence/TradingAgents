@@ -47,6 +47,54 @@ export function OllamaUpstreamAlert({
     return <ValidationAlert validation={validation} />;
   }
 
+  // Circuit-breaker state (v0.2.5+hf.4) takes precedence over the bare
+  // status field — it tells us WHY the system is in the state it's in
+  // and lets the UI render three calibrated states instead of binary
+  // "down / not-down".
+  const circuitState = health?.circuit_state ?? "closed";
+
+  if (circuitState === "half_open") {
+    // Yellow "recovering" pill — the breaker is letting one trial
+    // probe through. The user shouldn't see a red alert; we're already
+    // probing on their behalf.
+    return (
+      <div
+        role="status"
+        className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300"
+      >
+        <div className="font-medium">Recovering — upstream cooling down.</div>
+        <div className="mt-1 text-xs">
+          The backend is probing Ollama Cloud after a brief outage.
+          New runs may succeed shortly.
+        </div>
+      </div>
+    );
+  }
+
+  if (circuitState === "open") {
+    // Red cool-down notice — the breaker is open, requests will
+    // short-circuit until the cooldown elapses. Tell the user
+    // explicitly so they don't blame their config.
+    return (
+      <div
+        role="alert"
+        className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+      >
+        <div className="font-medium">
+          Upstream in cool-down — new runs will fail.
+        </div>
+        <div className="mt-1 text-xs text-destructive/90">
+          The shared HTTP client opened its circuit breaker after
+          sustained Ollama Cloud failures. It will retry automatically
+          after ~30 seconds. Wait, or switch to a different provider.
+        </div>
+      </div>
+    );
+  }
+
+  // Steady-state: breaker is closed. Only fire the red alert when the
+  // status is sustained-down (hysteresis already debounced single
+  // transients on the backend side).
   if (health?.status !== "down") return null;
 
   const errorText = health?.error

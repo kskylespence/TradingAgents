@@ -133,12 +133,19 @@ async def _ollama_probe() -> Optional[dict]:
 
     url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
 
-    from ..services.ollama_models import last_probe_status, list_ollama_models
+    from ..services import upstream_http
+    from ..services.ollama_models import (
+        last_probe_status,
+        list_ollama_models,
+        recent_attempts,
+    )
 
     # Trigger (or reuse) a fetch so ``last_probe_status`` has something to
     # report. ``list_ollama_models`` is contractually never-raises.
     models = await list_ollama_models()
     status, error = last_probe_status()
+    attempts = recent_attempts()
+    breaker_state = upstream_http.circuit_state()
 
     if status == "ok":
         return {
@@ -146,6 +153,8 @@ async def _ollama_probe() -> Optional[dict]:
             "url": url,
             "model_count": len(models),
             "error": None,
+            "recent_attempts": attempts,
+            "circuit_state": breaker_state,
         }
     if status == "down":
         return {
@@ -153,6 +162,8 @@ async def _ollama_probe() -> Optional[dict]:
             "url": url,
             "model_count": None,
             "error": error,
+            "recent_attempts": attempts,
+            "circuit_state": breaker_state,
         }
     # status == "unknown" — list_ollama_models() didn't even record an
     # attempt. The only way to land here is if the cache was returning a
@@ -163,6 +174,8 @@ async def _ollama_probe() -> Optional[dict]:
         "url": url,
         "model_count": None,
         "error": None,
+        "recent_attempts": attempts,
+        "circuit_state": breaker_state,
     }
 
 
