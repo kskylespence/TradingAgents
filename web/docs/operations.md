@@ -47,6 +47,7 @@ silently runs with a publicly-known dev string.
 | `TRADINGAGENTS_LLM_PROVIDER` | unset | Provider key (e.g. `ollama`, `openai`). Read by `/api/health` to decide whether to include the `ollama` upstream-probe block in the response — set this when deploying so the health endpoint surfaces upstream reachability honestly. Used as a default by the engine path too. |
 | `TRADINGAGENTS_LLM_MAX_RETRIES` | `5` for cloud providers, `2` for native `openai` | Overrides the per-provider default `max_retries` passed to the OpenAI-compatible chat client. The vendored SDK's bare default (`2` with sub-second backoff) burns through 3 attempts in under 2 seconds, which lost a real-world run when Ollama Cloud was 500-ing — `5` gives a ~32-second envelope with exponential backoff and jitter. Bump this if your provider's transients run longer than 30 seconds; drop it if you want to fail fast. Explicit `max_retries` kwarg passed by callers still wins. |
 | `TRADINGAGENTS_LLM_READ_TIMEOUT` | `120` (seconds) | Replaces the `read` field of the `httpx.Timeout` applied to chat completions. The full default is `Timeout(connect=10, read=120, write=10, pool=10)`. The 120-second read is generous for thinking-model first-token latency but bounded so a hung upstream releases the `GLOBAL_RUN_LOCK` instead of pinning the app for httpx's 10-minute default. `connect`/`write`/`pool` are not env-overridable; an explicit `timeout` kwarg passed by callers replaces the whole `Timeout` object. |
+| `TRADINGAGENTS_RUN_MAX_SECONDS` | `1800` (30 min) | **v0.2.5+hf.4 — outer safety net.** Maximum wall-clock duration of a single run, enforced by `asyncio.wait_for` around `_run_engine` in `run_service._run_async`. On timeout, the cooperative `cancel_event` is set, the run is marked `failed` with a clear error naming this env var, and the existing `finally:` block releases `GLOBAL_RUN_LOCK` — so the single-concurrent-run lock cannot be pinned by a hung LLM call beyond this window. Bump for legitimately long thinking-model runs; the default covers all observed runs to date. |
 
 ### Per-provider API keys (optional)
 
@@ -116,7 +117,13 @@ unaffected — only the encrypted credential table is dead weight.
     "status": "ok" | "down" | "unknown",
     "url": "https://ollama.com/v1",
     "model_count": 39,                    // int on "ok"; null on "down"/"unknown"
-    "error": null                          // exception repr on "down"
+    "error": null,                         // exception repr on "down"
+    "recent_attempts": [                  // v0.2.5+hf.4 — rolling last-3 log
+      {"at": "...", "ok": true,  "error": null},
+      {"at": "...", "ok": false, "error": "ConnectTimeout('')"},
+      {"at": "...", "ok": true,  "error": null}
+    ],
+    "circuit_state": "closed"             // v0.2.5+hf.4 — "closed" | "open" | "half_open"
   }
 }
 ```
@@ -129,13 +136,38 @@ unaffected — only the encrypted credential table is dead weight.
 The optional `ollama` block reports upstream LLM reachability when
 Ollama is the active provider. `ollama.status` distinguishes:
 
-- `"ok"` — last probe succeeded; `model_count` is the real count.
-  Note that `model_count: 0` is still `"ok"` — an account legitimately
-  provisioned with zero models is not "down".
-- `"down"` — last probe failed (4xx / 5xx / timeout / connect error).
-  `error` carries the repr for triage.
+- `"ok"` — last probe succeeded OR a single recent failure with two
+  prior successes (**hysteresis added in 0.2.5+hf.4** — single
+  transients no longer flip the alert red). `model_count` is the real
+  count. Note that `model_count: 0` is still `"ok"` — an account
+  legitimately provisioned with zero models is not "down".
+- `"down"` — **2 of the last 3** probe attempts failed (sustained
+  outage). `error` carries the latest exception repr for triage.
 - `"unknown"` — no probe attempted yet in this process. Practically
   only seen at very cold start.
+
+**Hysteresis (0.2.5+hf.4).** The previous binary "single failure →
+down" logic flipped the user-visible alert red on every 2-second TCP
+RTT spike against `ollama.com/v1`. The 2-of-3 rule absorbs single
+transients silently while a real outage still surfaces within
+two 30-second poll cycles. `recent_attempts` is the underlying log
+the rule operates on.
+
+**Circuit breaker (0.2.5+hf.4).** `circuit_state` mirrors the shared
+`upstream_http` breaker:
+
+- `"closed"` — normal operation.
+- `"open"` — 5+ consecutive upstream failures; new requests
+  short-circuit with `CircuitBreakerError` and the catalog falls back
+  to last-good cache. Stays open for 30 s.
+- `"half_open"` — cooldown elapsed; one trial probe in flight. A
+  success closes the circuit; a failure reopens it.
+
+Operators can grep for the breaker's transitions in the logs:
+`upstream_http.circuit_opened`, `upstream_http.circuit_half_open_probe`,
+`upstream_http.circuit_closed`. The intent is that a sustained Ollama
+Cloud outage opens the breaker once (visible in logs + UI) instead of
+amplifying the failure with hundreds of doomed retries.
 
 **The outer `status` is NOT flipped to `"degraded"` when Ollama is
 down.** Coolify treats non-2xx (and now `degraded`) as restart

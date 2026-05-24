@@ -439,26 +439,51 @@ When `TRADINGAGENTS_LLM_PROVIDER == "ollama"` the response includes an
   "status": "ok" | "down" | "unknown",
   "url": "https://ollama.com/v1",
   "model_count": 39,        // int when status="ok"; null on "down"/"unknown"
-  "error": null              // repr() of the underlying exception on "down"
+  "error": null,             // repr() of the underlying exception on "down"
+  "recent_attempts": [       // v0.2.5+hf.4 — rolling last-3 attempt log
+    {"at": "2026-05-24T17:32:18+00:00", "ok": true,  "error": null},
+    {"at": "2026-05-24T17:32:48+00:00", "ok": false, "error": "ConnectTimeout('')"},
+    {"at": "2026-05-24T17:33:18+00:00", "ok": true,  "error": null}
+  ],
+  "circuit_state": "closed"  // v0.2.5+hf.4 — "closed" | "open" | "half_open"
 }
 ```
 
 `status` distinguishes:
 - `"ok"` — last upstream probe succeeded. `model_count` may legitimately
   be `0` (an account with no models provisioned is still "ok").
-- `"down"` — last probe failed (4xx / 5xx / timeout). `error` carries
-  the underlying exception repr for ops triage. The OUTER `status`
-  stays `"ok"` — same Coolify invariant as DB-down — so an upstream LLM
-  outage does NOT restart the container.
+- `"down"` — **2 of the last 3** probe attempts failed (hysteresis;
+  v0.2.5+hf.4). `error` carries the underlying exception repr for ops
+  triage. The OUTER `status` stays `"ok"` — same Coolify invariant as
+  DB-down — so an upstream LLM outage does NOT restart the container.
 - `"unknown"` — no probe attempted yet in this process. Rare in
-  practice: the probe is triggered on every `/api/health` hit, so the
-  only way to surface `unknown` is reading the cached state during the
-  narrow window before the first fetch records its outcome.
+  practice.
+
+**Hysteresis (v0.2.5+hf.4).** A single transient (e.g. a 2-second
+TCP RTT spike against `ollama.com/v1`) no longer flips `status` to
+`"down"`. The user-visible alert only fires on sustained outages
+(2-of-3). `recent_attempts` is the underlying log; the UI can show
+a "last 3 polls" indicator by reading it directly.
+
+**Circuit breaker (v0.2.5+hf.4).** `circuit_state` mirrors the shared
+`upstream_http` breaker:
+
+- `"closed"` — normal operation.
+- `"open"` — 5+ consecutive failures detected; new requests
+  short-circuit with `CircuitBreakerError` and the catalog falls back
+  to last-good cache. Stays open for 30 s.
+- `"half_open"` — cooldown elapsed; one trial probe is in flight. A
+  success closes the circuit; a failure reopens it.
+
+The frontend `<OllamaUpstreamAlert>` reads both fields and renders
+three calibrated states (no alert / yellow "recovering" pill /
+red "cool-down" or sustained-down alert).
 
 The probe shares the catalog endpoint's TTL cache (300 s), so health
 checks add no upstream load beyond what `/api/catalog/models` already
 pays. Per-attempt status is tracked separately from the cache in
-`app/services/ollama_models.py:_last_attempt` — that's what lets
+`app/services/ollama_models.py:_last_attempts` (a `deque[3]` per
+`base_url`) — that's what drives the hysteresis above AND lets
 `"ok with 0 models"` be distinguished from `"down with cold cache"`.
 
 ## See also

@@ -90,7 +90,9 @@ Drop a file in the right place and it wires itself.
 - `services/rate_limit.py` — login lockout, persisted to `login_attempts`.
 - `services/disk_pruner.py` — background retention sweep for reports and checkpoints.
 - `services/crash_recovery.py` — on-boot pass that flips orphan `running` runs to `interrupted`.
-- `services/ollama_models.py` — live discovery of Ollama / Ollama Cloud models via `GET {OLLAMA_BASE_URL}/models`, with TTL cache, never-raises contract, and a separate `_last_attempt` tracker that lets `/api/health` distinguish "ok-with-zero-models" from "down-with-cold-cache". Used by `catalog.py:list_models()` and by the health router's `_ollama_probe()`.
+- `services/upstream_http.py` (**0.2.5+hf.4**) — shared resilient HTTP client for every outbound call to Ollama. One module-singleton `httpx.AsyncClient` with HTTP/2, `Limits()`, and `Timeout(connect=10, read=15, write=10, pool=10)`. Layered with `tenacity` retry (exponential jitter on transient transport errors + 429/5xx), `Retry-After` header honouring (integer-seconds OR HTTP-date per RFC 7231 §7.1.3), and a `circuitbreaker.CircuitBreaker` that opens after 5 consecutive failures and half-opens after 30s. Public surface: `request(method, url, ...)`, `circuit_state()`, `close_client()`. Built specifically to absorb Ollama Cloud's documented instability (`ollama/ollama#14673`, `#15419`, `#15910`, `#13770`) without surfacing transients to the user. The run-time LLM call path (`tradingagents.llm_clients.openai_client`) does NOT go through this — it has its own SDK-level retry budget; this module is dedicated to the catalog/health/probe seam.
+- `services/ollama_models.py` — live discovery of Ollama / Ollama Cloud models via `GET {OLLAMA_BASE_URL}/models`, with 5-minute TTL cache and never-raises contract. Routes through `upstream_http.request`. State per `base_url`: `_cache` (only updated on success — the catalog's last-good fallback) and `_last_attempts` (a `deque[3]` of attempt outcomes driving the 2-of-3 hysteresis on `last_probe_status()` so single transients don't flap). `list_ollama_models()` uses stale-while-revalidate: on cache expiry it returns the stale list immediately and schedules a background refresh task. Also exposes `recent_attempts()` for the health endpoint and `probe_model_liveness(model_id)` for the pre-flight probe (Layer 1).
+- `lifespan_hooks/upstream_warmup.py` (**0.2.5+hf.4**) — on startup, spawns a fire-and-forget `list_ollama_models()` call (20s timeout) so the singleton client's DNS+TLS handshake is paid before the first user request. Also spawns a refresh loop every 240s (just before the 5-min cache TTL) so the cache never goes cold. On shutdown: cancels BOTH the warmup and refresh tasks, then `upstream_http.close_client()`.
 
 ## Run lifecycle walkthrough
 
@@ -145,8 +147,8 @@ If anything raises in step 6: `run_failed` is published, the row flips
 to `failed`. If the cancellation event is set (via
 `POST /api/runs/:id/cancel`): `run_cancelled` is published instead.
 
-Before an exception can reach step 6, it has to escape **two layers of
-retry**:
+Before an exception can reach step 6, it has to escape **three layers of
+retry/safety**:
 
 1. **OpenAI SDK transport retries**, configured by
    `tradingagents.llm_clients.openai_client.OpenAIClient.get_llm()` —
@@ -161,13 +163,45 @@ retry**:
    `openai.InternalServerError`, `openai.APITimeoutError`,
    `openai.APIConnectionError`, and `httpx.RemoteProtocolError` that
    still escape the SDK layer.
+3. **Per-run wall-clock timeout** (`run_service._run_async`, **0.2.5+hf.4**).
+   The engine call is wrapped in
+   `asyncio.wait_for(_run_engine(...), timeout=TRADINGAGENTS_RUN_MAX_SECONDS)`
+   (default 1800 s / 30 min). On `TimeoutError` the cooperative
+   `cancel_event` is set so the worker thread stops at the next chunk
+   boundary, the run is marked `failed` with a clear error naming the
+   env var, and the existing `finally:` block releases
+   `GLOBAL_RUN_LOCK`. This is the outer safety net that bounds the
+   single-concurrent-run lock's hold time even if every other layer
+   fails — without it, a hung LLM call held the lock indefinitely
+   (the 2026-05-22 56-minute hang in `2ccfeda` could have blocked
+   every subsequent run).
 
-Only an exception that survives BOTH layers turns into a `failed`
+Only an exception that survives ALL THREE layers turns into a `failed`
 status. The persisted `error_message` is the human-readable string
 from
 `web/backend/app/services/run_service.py:_format_engine_error(exc, provider)`
 — the helper names the provider, surfaces any upstream `ref:`
 correlation ID, and suggests a next action per exception class.
+
+### Catalog/health probe resilience (parallel pipeline)
+
+The `/api/health` poll (every 30s from the frontend) and the
+`/api/catalog/models?provider=ollama` fetch share a separate resilience
+pipeline owned by `services/upstream_http.py`. The matrix:
+
+| Layer | Lives in | Triggers on |
+|---|---|---|
+| Retry on transients | `upstream_http.request` (tenacity) | `ConnectError`/`Timeout`, `ReadTimeout`, `WriteTimeout`, `RemoteProtocolError`, `PoolTimeout`, plus 429 / 5xx wrapped as `RetryableStatusError` |
+| Retry-After honouring | same | 429 / 5xx response with the header (integer-seconds or HTTP-date) |
+| Circuit breaker | same (`circuitbreaker.CircuitBreaker`) | 5 consecutive failures; opens for 30s; half-opens for one trial probe before closing |
+| Hysteresis on user-visible state | `ollama_models.last_probe_status()` | reports `"down"` only when 2-of-3 recent attempts failed |
+| Stale-while-revalidate | `ollama_models.list_ollama_models()` | cache expiry returns stale immediately + spawns background refresh |
+| Startup warmup + 4-min refresh | `lifespan_hooks/upstream_warmup.py` | pre-resolves DNS+TLS on boot; keeps cache warm |
+
+Layered logging at every transition (`upstream_http.retry_attempt`,
+`retry_after_honored`, `circuit_opened`/`half_open_probe`/`closed`,
+`ollama_models.health_transition`, `ollama_models.stale_served`)
+makes the production failure path grep-friendly.
 
 ## Crash-recovery contract
 

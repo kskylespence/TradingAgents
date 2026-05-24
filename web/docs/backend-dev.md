@@ -202,12 +202,54 @@ References: `app/services/event_bus.py:_get_lock()`,
 `app/services/rate_limit.py:LoginRateLimiter._get_lock()`,
 `app/services/ollama_models.py:_get_lock()`.
 
+### Outbound HTTP — use `services/upstream_http` (don't re-roll `httpx.AsyncClient`)
+
+Every outbound HTTP call to a flaky upstream (today: Ollama Cloud)
+goes through `app.services.upstream_http`. The module owns a singleton
+`httpx.AsyncClient` with HTTP/2, `Limits()`, and a sane `Timeout`,
+wraps it with tenacity retries + a `circuitbreaker.CircuitBreaker`,
+and honours `Retry-After` headers. **Don't construct your own
+`httpx.AsyncClient`** — you'll bypass the retry/breaker layers and the
+asymmetry that the v0.2.5+hf.4 pass was specifically designed to
+eliminate.
+
+The public surface is small:
+
+```python
+from app.services import upstream_http
+
+resp = await upstream_http.request(
+    "GET", url,
+    headers=headers,
+    json_body=body,
+    max_attempts=3,          # cap retries (1 = no retry)
+    max_total_seconds=25.0,  # wall-clock cap across all retries
+)
+state = upstream_http.circuit_state()  # "closed" | "open" | "half_open"
+```
+
+`request()` may raise:
+
+- `circuitbreaker.CircuitBreakerError` — breaker is open; degrade to
+  cached / fallback data, don't propagate.
+- `upstream_http.RetryableStatusError` — retries exhausted on 429/5xx;
+  `.response` carries the last 5xx/429 `httpx.Response` so callers can
+  classify (e.g. `probe_model_liveness` extracts the
+  `(ref: ...)` upstream ref out of the response body).
+- `httpx.HTTPError` or subclass — exhausted retries on transport
+  errors.
+
+If you genuinely need to bypass the breaker (e.g. a one-shot health
+check that should NOT count toward breaker failures), construct your
+own `httpx.AsyncClient` — but write a CLAUDE.md note explaining why.
+The default is "go through `upstream_http`."
+
 ### Mocking outbound HTTP — `install_fake_httpx_ollama` fixture
 
-When a service makes outbound `httpx` calls (today: only
-`ollama_models.py`), tests should monkeypatch `httpx.AsyncClient` rather
-than spin up a real server. There's a shared helper in
-`web/backend/tests/conftest.py`:
+The shared helper in `web/backend/tests/conftest.py` mocks at the
+**transport layer** of the `upstream_http` singleton (via
+`httpx.MockTransport`), so all the production retry / breaker / timeout
+wiring stays exercised but transport responses are deterministic:
 
 ```python
 from .conftest import install_fake_httpx_ollama
@@ -221,20 +263,28 @@ def test_something(monkeypatch):
     )
     # ... exercise the catalog/health/runs endpoint ...
     assert record["calls"] == 1
-    assert "Bearer" in record["last_headers"]["Authorization"]
+    # Note: MockTransport normalises header names to lowercase
+    # (HTTP/1.1 RFC 7230 §3.2 — case-insensitive). The legacy stub
+    # preserved case; tests should check both.
+    auth = (record["last_headers"].get("authorization")
+            or record["last_headers"].get("Authorization"))
+    assert "Bearer" in auth
 ```
 
 `record` is a dict tracking `{"calls", "last_url", "last_headers"}` so
 tests can assert that the right URL and auth headers were sent.
-Combined with the autouse `_reset_ollama_cache` fixture in conftest
-(which clears `_cache`, `_lock`, and `_last_attempt` between tests),
-every test starts from a fresh upstream state.
+Combined with the autouse `_reset_ollama_cache` fixture (which calls
+`ollama_models._reset_for_tests()` → also resets the
+`upstream_http` singleton + circuit breaker), every test starts from
+a clean state.
 
 The two service-level test files
 (`test_ollama_models_service.py` and `test_ollama_models_failure_keeps_last_good.py`)
 keep their own local helper because they need full control of the
 response JSON to test malformed-item edge cases and multi-step
-success-then-failure scripts. Router-level tests should always use
+success-then-failure scripts — but they also install a
+`MockTransport` on `upstream_http._client` rather than monkeypatching
+`httpx.AsyncClient` directly. Router-level tests should always use
 the shared helper.
 
 ## The soft-auth pattern
