@@ -61,7 +61,11 @@ should know the invariants:
 3. **`GET /api/settings/defaults` auto-heals** stale saved model names
    by returning `null` when the saved `quick_think_llm` / `deep_think_llm`
    is not in the live catalog for the saved provider. The DB row is
-   NOT mutated; the next PUT overwrites cleanly.
+   NOT mutated; the next PUT overwrites cleanly. When no `user_defaults`
+   row exists yet, the response uses schema defaults: `research_depth=1`,
+   `analysts=["market","social"]`, `llm_provider="ollama"`,
+   `quick_think_llm` / `deep_think_llm` = `"glm-5.2"`,
+   `enable_checkpoint=true`.
 4. **`PUT /api/settings/defaults` validates** provider + model against
    the live catalog and returns 400 with the available list. `null` is
    accepted (that's how auto-heal stores its "I don't know" state).

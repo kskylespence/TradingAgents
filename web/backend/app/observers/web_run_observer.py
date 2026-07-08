@@ -174,6 +174,19 @@ class WebRunObserver(RunObserver):
             self._tokens_in += int(tokens_in)
             self._tokens_out += int(tokens_out)
 
+    def ingest_callback_stats(self, stats: dict[str, Any]) -> None:
+        """Apply authoritative totals from :class:`StatsCallbackHandler`.
+
+        LangChain callbacks capture token usage and call counts that the
+        stream observer cannot see on its own. Called once after
+        ``stream_run`` returns.
+        """
+        with self._stats_lock:
+            self._llm_calls = int(stats.get("llm_calls", self._llm_calls))
+            self._tool_calls = int(stats.get("tool_calls", self._tool_calls))
+            self._tokens_in = int(stats.get("tokens_in", self._tokens_in))
+            self._tokens_out = int(stats.get("tokens_out", self._tokens_out))
+
     def emit_progress(self, progress: float, step: str) -> None:
         """Emit a ``ProgressUpdateEvent`` (0..1 with a step label).
 

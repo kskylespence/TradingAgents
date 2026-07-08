@@ -2,9 +2,10 @@
 
 This guide walks you through deploying the TradingAgents web UI to a
 [Coolify](https://coolify.io/)-managed VPS. The target topology is a single
-Docker image (built from the repo-root `Dockerfile`) talking to a managed
-[Neon](https://neon.tech/) Postgres database and a Coolify-managed persistent
-volume mounted at `/data/tradingagents`.
+Docker image (built from the repo-root `Dockerfile`) talking to **Postgres**
+(either a **Coolify-managed database on the same server** — recommended for a
+single VPS — or a hosted [Neon](https://neon.tech/) instance) plus a
+Coolify-managed persistent volume mounted at `/data/tradingagents`.
 
 The build pack is **Dockerfile**, the exposed port is **8000**, and the
 health-check endpoint is **`/api/health`**. The image runs `alembic upgrade
@@ -25,15 +26,19 @@ Before you start, you should have:
   should report healthy.
 - DNS for your chosen hostname pointed at the VPS public IP (an A record for
   `tradingagents.example.com` is enough).
-- A Neon project with a database called `tradingagents`. From the Neon UI,
-  grab the **pooled** connection string (recommended for serverless-style
-  scaling) and convert the scheme to `postgresql+asyncpg://`.
+- **A Postgres database** for the app — either:
+  - **Coolify Postgres (recommended on a single VPS):** create a standalone
+    PostgreSQL resource in the same Coolify project/environment (see
+    [Step 3b](#step-3b--database-choose-one)); or
+  - **Neon:** a project with a database called `tradingagents`, pooled
+    connection string converted to `postgresql+asyncpg://…?ssl=require`.
 - A workstation with Python 3.10+ installed locally, used only to generate
   secrets (the secrets never leave your machine until you paste them into
   Coolify).
-- LLM provider API keys for whichever providers you plan to use (at minimum
-  one of OpenAI, Anthropic, Google, etc.). You can also set these later via
-  the in-app **Settings** page.
+- LLM provider credentials for whichever providers you plan to use. For the
+  **lite VPS preset** (Ollama Cloud, no local inference), set
+  `OLLAMA_BASE_URL=https://ollama.com/v1` and `OLLAMA_API_KEY`. Other
+  providers can be added later via the in-app **Settings** page.
 
 You do **not** need Docker on your workstation; Coolify builds the image on
 the VPS itself. For small VPS hosts (2 vCPU / 8 GB), prefer a
@@ -77,14 +82,14 @@ repo publishes to GitHub Container Registry on every `v*-hf.*` tag (see
 [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)):
 
 1. Cut a release tag per [`docs/RELEASING.md`](docs/RELEASING.md) (e.g.
-   `v0.2.5-hf.5`).
+   `v0.2.5-hf.7`).
 2. Wait for the **Publish Docker image** workflow to finish on GitHub
    Actions.
 3. In Coolify, switch the application from **Dockerfile** build to
    **Docker image** and set:
 
    ```
-   ghcr.io/kskylespence/tradingagents:0.2.5-hf.5
+   ghcr.io/kskylespence/tradingagents:0.2.5-hf.7
    ```
 
    (Use the PEP 440 version with `+` replaced by `-` in the tag, or
@@ -205,6 +210,48 @@ The container's entrypoint creates `logs/`, `cache/`, `memory/`, and
 
 ---
 
+## Step 3b — Database (choose one)
+
+The web UI stores runs, SSE replay events, encrypted API keys, saved form
+defaults, and login rate-limit state in Postgres. Pick **one** backend.
+
+### Option A — Coolify Postgres (recommended for a single VPS)
+
+1. In Coolify → your project → **+ New** → **Database** → **PostgreSQL**.
+2. Name it `tradingagents` (user/db can match). Generate a strong password.
+3. Deploy/start the database until its status is **running:healthy**.
+4. Copy the **internal** connection string Coolify shows (host is the
+   database resource UUID on the `coolify` Docker network, not a public IP).
+5. Convert the scheme for SQLAlchemy async:
+
+   ```text
+   postgres://USER:PASS@<db-uuid>:5432/tradingagents
+   → postgresql+asyncpg://USER:PASS@<db-uuid>:5432/tradingagents
+   ```
+
+   No `?ssl=require` is needed for container-to-container traffic on the
+   same Coolify network.
+
+6. Paste the result into `DATABASE_URL` on the **application** (Step 4).
+
+The app and database must live in the **same Coolify environment** so they
+share the `coolify` network.
+
+### Option B — Neon (managed Postgres)
+
+1. Create a Neon project and database named `tradingagents`.
+2. Copy the **pooled** connection string from the Neon dashboard.
+3. Convert to async SQLAlchemy and **append TLS**:
+
+   ```text
+   postgresql+asyncpg://USER:PASS@ep-xxxx.neon.tech/tradingagents?ssl=require
+   ```
+
+Neon is a good fit when the database should outlive the VPS or you want
+managed point-in-time recovery without operating Postgres yourself.
+
+---
+
 ## Step 4 — Environment variables
 
 Open the **Environment Variables** tab on your Coolify app. Add every entry
@@ -221,7 +268,7 @@ it only into the running container.
 | `JWT_SECRET`          | yes      | yes          | output of `openssl rand -hex 32` (Step 1)                                        |
 | `JWT_TTL_SECONDS`     | no       | no           | `604800` (7 days; default if unset)                                              |
 | `FERNET_KEY`          | yes      | yes          | output of the Fernet command (Step 1)                                            |
-| `DATABASE_URL`        | yes      | yes          | `postgresql+asyncpg://USER:PASS@HOST.neon.tech/tradingagents?ssl=require`        |
+| `DATABASE_URL`        | yes      | yes          | See [Step 3b](#step-3b--database-choose-one). Coolify Postgres: `postgresql+asyncpg://user:pass@<db-uuid>:5432/tradingagents`. Neon: `…neon.tech/…?ssl=require` |
 | `DATA_DIR`            | no       | no           | `/data/tradingagents` (default; matches the volume mount)                        |
 | `RETENTION_DAYS`      | no       | no           | `90`                                                                             |
 | `COOLIFY_FQDN`        | auto     | n/a          | auto-injected by Coolify                                                         |
@@ -239,6 +286,16 @@ it only into the running container.
 | `OPENROUTER_API_KEY`  | optional | yes          | OpenRouter                                                                       |
 | `TOGETHER_API_KEY`    | optional | yes          | Together AI                                                                      |
 | `XAI_API_KEY`         | optional | yes          | xAI Grok                                                                         |
+| `OLLAMA_BASE_URL`     | optional | yes          | `https://ollama.com/v1` for Ollama Cloud; omit if not using Ollama              |
+| `OLLAMA_API_KEY`      | optional | yes          | Ollama Cloud API key (required when `OLLAMA_BASE_URL` points at ollama.com)     |
+| `TRADINGAGENTS_LLM_PROVIDER` | optional | yes   | `ollama` for the [lite VPS preset](web/docs/operations.md#lite-vps-preset)      |
+| `TRADINGAGENTS_QUICK_THINK_LLM` | optional | yes | `glm-5.2` (lite preset default)                                                |
+| `TRADINGAGENTS_DEEP_THINK_LLM`  | optional | yes | `glm-5.2` (lite preset default)                                                |
+| `TRADINGAGENTS_MAX_DEBATE_ROUNDS` | optional | yes | `1` (lite preset)                                                             |
+| `TRADINGAGENTS_MAX_RISK_ROUNDS`   | optional | yes | `1` (lite preset)                                                             |
+| `TRADINGAGENTS_RUN_MAX_SECONDS`   | optional | yes | `1200` (lite preset)                                                          |
+| `TRADINGAGENTS_LLM_READ_TIMEOUT` | optional | yes | `90` (lite preset)                                                            |
+| `TRADINGAGENTS_LLM_MAX_RETRIES`  | optional | yes | `3` (lite preset)                                                             |
 
 ¹ Exactly one of `ADMIN_PASSWORD_HASH` / `ADMIN_PASSWORD_HASH_B64` is
 required. The b64 form is the workaround for Coolify's `$`-interpolation
@@ -248,23 +305,27 @@ The eleven provider key variables are optional at deploy time — any not set
 here can be added later through the **Settings → API Keys** page in the UI,
 which encrypts them with `FERNET_KEY` and stores them in Postgres.
 
-> **Neon SSL.** Your `DATABASE_URL` **must** end in `?ssl=require`. asyncpg
-> will not negotiate TLS automatically and Neon refuses unencrypted
-> connections. If you forget, the entrypoint's `alembic upgrade head` will
-> fail with `SSL connection has been closed unexpectedly` — see
-> Troubleshooting.
+> **Neon SSL.** If you use Neon, your `DATABASE_URL` **must** end in
+> `?ssl=require`. asyncpg will not negotiate TLS automatically and Neon
+> refuses unencrypted connections. Coolify Postgres on the internal
+> Docker network does not need this suffix. If you forget on Neon, the
+> entrypoint's `alembic upgrade head` will fail with
+> `SSL connection has been closed unexpectedly` — see Troubleshooting.
 
 ---
 
 ## Step 5 — Custom domain + TLS
 
-1. In Coolify → app → **Domains** tab, add `https://tradingagents.example.com`
-   (substitute your hostname).
+1. In Coolify → app → **Domains** tab, add your hostname with the scheme
+   included — e.g. `https://tradingagents.example.com` (not bare
+   `tradingagents.example.com`). Coolify generates Traefik labels from
+   this value; omitting `https://` produces a broken `Host(``)` rule and
+   Traefik will respond with **"no available server"**.
 2. Save. Coolify provisions a Let's Encrypt certificate automatically through
    its bundled Traefik proxy; this typically completes within ~30 seconds of
    the next deploy.
 3. If you have multiple domains pointing at the same app, list them
-   comma-separated.
+   comma-separated, each with its scheme (`https://…`).
 
 No additional reverse-proxy configuration is required — Coolify's Traefik
 handles HTTP→HTTPS redirect and HSTS termination on its own.
@@ -294,9 +355,11 @@ Two independent health checks are configured by the Dockerfile and Coolify:
    - Timeout: `5s`
    - Retries: `3`
 
-The endpoint returns `{"status": "ok", "db": "ok", "disk_free_mb": ..., "active_run_id": "..."}`
-when everything is healthy. `db: "down"` indicates the Neon connection is
-broken; the container still serves UI assets so you can see the error.
+The endpoint returns `{"status": "ok", "version": "…", "db": "ok", …}`
+when everything is healthy. `db: "down"` indicates the Postgres connection is
+broken; the container still serves UI assets so you can see the error. When
+`TRADINGAGENTS_LLM_PROVIDER=ollama`, the body also includes an `ollama`
+upstream probe block (`status`, `model_count`, `circuit_state`).
 
 ---
 
@@ -336,21 +399,28 @@ broken; the container still serves UI assets so you can see the error.
 4. Open `https://tradingagents.example.com` in your browser, log in with
    `ADMIN_USERNAME` + the plaintext password you hashed in Step 1.
 
-5. Submit a small smoke run:
+5. Submit a small smoke run (lite preset example):
 
    - Ticker: `SPY`
    - Date: today
-   - Analysts: `market`, `news`
-   - Depth: `1`
-   - Provider: `openai`
-   - Quick model: `gpt-4o-mini`
-   - Deep model: `gpt-4o-mini`
+   - Analysts: `market`, `social` (Sentiment)
+   - Depth: `1` (Shallow)
+   - Provider: `ollama` (Ollama Cloud — requires `OLLAMA_BASE_URL` +
+     `OLLAMA_API_KEY` in Step 4)
+   - Quick model: `glm-5.2`
+   - Deep model: `glm-5.2`
 
-   The run takes ~2-4 minutes at depth=1. Watch the agent grid turn green and
-   the final 5-tier rating (`Buy / Overweight / Hold / Underweight / Sell`)
-   appear. Click **Download Report** to confirm the markdown bundle.
+   The run takes a few minutes at depth=1 with a cloud model. Watch the agent
+   grid turn green and the final 5-tier rating (`Buy / Overweight / Hold /
+   Underweight / Sell`) appear. Click **Download Report** to confirm the
+   markdown bundle.
 
-6. Verify the Neon row exists:
+   > **OpenAI smoke alternative:** swap provider to `openai`, set
+   > `OPENAI_API_KEY`, and pick `gpt-4o-mini` for both models if you are not
+   > using Ollama Cloud.
+
+6. Verify the database row exists (Coolify Postgres terminal, `psql`, or Neon
+   SQL editor):
 
    ```sql
    SELECT id, ticker, status, rating, started_at, finished_at
@@ -392,10 +462,21 @@ chmod -R u+rwX /data/tradingagents
 (UID 10001 = `tradingagents`; the user is also pre-created in the
 image.)
 
+### Traefik returns `no available server` on your custom domain
+
+The app container is healthy but the browser shows a plain-text
+**no available server** page. Coolify generated a broken Traefik host
+rule — almost always because the domain was saved **without** the
+`https://` prefix.
+
+Fix: open the app → **Domains** → set FQDN to `https://your.host.name`
+→ save → **Restart** or **Deploy**. The Traefik rule should read
+`Host(\`your.host.name\`)`, not `PathPrefix(\`your.host.name\`)`.
+
 ### `alembic upgrade head` fails on first boot
 
-The most common cause is missing `?ssl=require` on the Neon URL. Coolify
-logs (app → **Logs** tab) will show:
+**Neon:** the most common cause is missing `?ssl=require` on the URL.
+Coolify logs (app → **Logs** tab) will show:
 
 ```text
 asyncpg.exceptions.ConnectionFailureError: SSL connection has been closed unexpectedly
@@ -407,17 +488,21 @@ Fix:
 DATABASE_URL=postgresql+asyncpg://user:pass@ep-xxxx.neon.tech/tradingagents?ssl=require
 ```
 
+**Coolify Postgres:** confirm the database resource is `running:healthy`,
+the app and DB are in the same environment, and `DATABASE_URL` uses the
+**internal** hostname (the DB resource UUID), not `localhost` or the VPS
+public IP. Scheme must be `postgresql+asyncpg://`.
+
 After updating the env var, click **Restart** (not Deploy) in Coolify. A
 restart is enough; you do not need to rebuild the image.
 
 Other alembic failures to check:
 
 - `relation "alembic_version" already exists` after a failed migration —
-  open the Neon SQL editor and run `DROP TABLE alembic_version;`, then
-  restart.
-- `permission denied for schema public` — confirm the Neon role in the
-  connection string owns the database. The Neon UI's default role does;
-  custom roles may not.
+  connect to Postgres (`psql` or Neon SQL editor) and run
+  `DROP TABLE alembic_version;`, then restart.
+- `permission denied for schema public` — confirm the database role in the
+  connection string owns the database.
 
 ### SSE stream drops every ~30 seconds
 
@@ -486,7 +571,8 @@ delete unattached volumes.)
 
 The login route is rate-limited to 5 failures per 5 minutes per IP. The
 counter is also persisted to `login_attempts` in Postgres so a container
-restart will not reset it. Clear via the Neon SQL editor:
+restart will not reset it. Clear via `psql`, the Coolify database
+terminal, or the Neon SQL editor:
 
 ```sql
 DELETE FROM login_attempts WHERE ip = '<your-ip>'::inet;

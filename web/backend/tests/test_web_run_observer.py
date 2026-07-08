@@ -339,6 +339,26 @@ async def test_stats_tracks_tool_and_llm_call_counts() -> None:
     assert stats["elapsed_seconds"] >= 0.0
 
 
+async def test_ingest_callback_stats_overwrites_token_counts() -> None:
+    bus = MockBus()
+    obs = WebRunObserver(run_id=uuid4(), publish=bus.publish)
+
+    obs.ingest_callback_stats(
+        {
+            "llm_calls": 42,
+            "tool_calls": 7,
+            "tokens_in": 12000,
+            "tokens_out": 3400,
+        }
+    )
+
+    stats = obs.stats()
+    assert stats["llm_calls"] == 42
+    assert stats["tool_calls"] == 7
+    assert stats["tokens_in"] == 12000
+    assert stats["tokens_out"] == 3400
+
+
 # --------------------------------------------------------------------------- #
 # Sync-to-async bridge — callbacks fired from a worker thread                  #
 # --------------------------------------------------------------------------- #

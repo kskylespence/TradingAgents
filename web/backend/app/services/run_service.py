@@ -78,8 +78,13 @@ from app.services import env_inject, event_bus
 # without touching the engine package itself.
 from tradingagents.agents.utils.rating import parse_rating
 from tradingagents.dataflows.utils import safe_ticker_component
+from tradingagents.graph.analyst_execution import (
+    AnalystWallTimeTracker,
+    build_analyst_execution_plan,
+)
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
-from tradingagents.run_observer import stream_run
+from tradingagents.run_observer import ANALYST_AGENT_NAMES, stream_run
+from tradingagents.stats_handler import StatsCallbackHandler
 
 log = logging.getLogger(__name__)
 
@@ -550,10 +555,19 @@ async def _run_engine(
     # matches the CLI layout and respects the ticker-sanitisation rule.
     config["results_dir"] = str(settings.data_dir / "logs")
 
+    analyst_keys = list(req.analysts)
+    analyst_plan = build_analyst_execution_plan(analyst_keys)
+    wall_time_tracker = AnalystWallTimeTracker(analyst_plan)
+    if analyst_keys:
+        wall_time_tracker.mark_started(analyst_keys[0])
+
+    stats_handler = StatsCallbackHandler()
+
     graph = TradingAgentsGraph(
-        list(req.analysts),
+        analyst_keys,
         config=config,
         debug=False,
+        callbacks=[stats_handler],
         observer=observer,
     )
 
@@ -563,7 +577,7 @@ async def _run_engine(
         req.analysis_date.isoformat(),
         asset_type=asset_type,
     )
-    args = graph.propagator.get_graph_args()
+    args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
     def _sync_loop() -> Dict[str, Any]:
         return stream_run(
@@ -571,11 +585,17 @@ async def _run_engine(
             init_state,
             args,
             observer,
-            selected_analysts=list(req.analysts),
+            selected_analysts=analyst_keys,
             cancel_event=cancel_event,
+            wall_time_tracker=wall_time_tracker,
         )
 
     final_state = await asyncio.to_thread(_sync_loop)
+
+    for key, seconds in wall_time_tracker.get_wall_times().items():
+        agent_name = ANALYST_AGENT_NAMES.get(key, key.title())
+        observer.on_analyst_wall_time(key, agent_name, seconds)
+    observer.ingest_callback_stats(stats_handler.get_stats())
     if cancel_event.is_set():
         raise _CancelledByEvent()
     return final_state

@@ -416,7 +416,7 @@ async def retry(
 @router.get("/{run_id}/report")
 async def get_report(
     run_id: UUID,
-    format: str = Query("md", regex="^(md|json|zip)$"),
+    format: str = Query("md", pattern="^(md|json|zip)$"),
     db: AsyncSession = Depends(get_session),
     _user: AuthUser = Depends(get_current_user),
 ) -> Response:

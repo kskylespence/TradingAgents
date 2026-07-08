@@ -14,6 +14,37 @@ for the per-deploy cut workflow.
 
 ## [Unreleased]
 
+## [0.3.1+hf.1] — 2026-07-08
+
+### Added
+
+- **Upstream v0.3.1 merge.** Integrated `TauricResearch/TradingAgents`
+  v0.3.0–v0.3.1: debate/risk router crash-safety (#1088), checkpoint thread
+  identity (#1089), verified data-access contract, provider registry (Bedrock
+  bearer auth, NIM/Kimi/Groq/Mistral/openai_compatible), FRED + Polymarket
+  vendors, nullish-float structured-output coercion (#1058), and upstream CI
+  gate.
+
+- **Run stats wiring (web).** `run_service` passes `AnalystWallTimeTracker`
+  + `StatsCallbackHandler` into the engine so `runs.stats` persists token
+  counts and per-analyst wall times. `StatsCallbackHandler` lives in
+  `tradingagents/stats_handler.py`.
+
+- **Postgres password rotation helper (`web/backend/scripts/rotate_db_password.py`).**
+  One-shot `ROTATE_DB_PASSWORD=… python …/rotate_db_password.py` for
+  Coolify operators replacing the initial `PLACEHOLDER` password.
+
+### Changed
+
+- **Deployment and README docs.** [`DEPLOY.md`](DEPLOY.md) documents
+  Coolify Postgres, GHCR prebuild, lite preset, and `glm-5.2` defaults;
+  operations guide covers env deduplication and DB password rotation.
+
+### Fixed
+
+- **FastAPI `Query` deprecation.** `GET /api/runs/{id}/report` uses
+  `pattern=` instead of deprecated `regex=`.
+
 ## [0.2.5+hf.7] — 2026-07-08
 
 ### Changed

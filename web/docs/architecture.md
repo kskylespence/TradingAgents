@@ -28,9 +28,9 @@
            │                              │
            ▼                              ▼
 ┌──────────────────────────┐   ┌──────────────────────────────────┐
-│  TradingAgentsGraph      │   │  Neon Postgres (prod) / SQLite   │
-│  (the existing engine,   │   │  runs · run_events · api_keys ·  │
-│   checkpoint-enabled for │   │  user_defaults · login_attempts  │
+│  TradingAgentsGraph      │   │  Postgres (Coolify / Neon) / SQLite│
+│  (the existing engine,   │   │  runs · run_events · api_keys ·    │
+│   checkpoint-enabled for │   │  user_defaults · login_attempts    │
 │   crash resume)          │   └──────────────────────────────────┘
 └──────────┬───────────────┘
            ▼

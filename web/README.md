@@ -17,7 +17,7 @@ provider API keys — without ever opening a terminal.
 |---|---|
 | FastAPI + Uvicorn | Vite + React 18 + TypeScript 5 |
 | SQLAlchemy 2.0 async + Alembic | Tailwind 3 + shadcn/ui |
-| Neon Postgres (prod) / SQLite (dev) | TanStack React Query + react-router |
+| Postgres (Coolify local / Neon / SQLite dev) | TanStack React Query + react-router |
 | `sse-starlette` for live streaming | `EventSource` + reducer hook |
 | `passlib[bcrypt]` + PyJWT for auth | Playwright + Vitest for tests |
 | Fernet for at-rest API-key encryption | react-markdown + remark-gfm |
@@ -51,6 +51,22 @@ npm run dev    # http://localhost:5173 (proxies /api → :8000)
 
 Open <http://localhost:5173>, log in as `admin` / `password`, submit a
 SPY run, watch it complete in ~0.3 seconds, click Download Report.
+
+### Production defaults (fork)
+
+Fresh installs return these from `GET /api/settings/defaults` until the
+user saves different choices in **Settings**:
+
+| Field | Default |
+|---|---|
+| `research_depth` | `1` (Shallow) |
+| `analysts` | `market`, `social` (Sentiment) |
+| `llm_provider` | `ollama` |
+| `quick_think_llm` / `deep_think_llm` | `glm-5.2` |
+
+The [lite VPS env preset](docs/operations.md#lite-vps-preset) mirrors these
+for Coolify (`TRADINGAGENTS_*` vars). Deploy walk-through:
+[`../DEPLOY.md`](../DEPLOY.md).
 
 ## Documentation map
 

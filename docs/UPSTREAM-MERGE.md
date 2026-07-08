@@ -1,20 +1,17 @@
-# Upstream merge schedule (v0.3.1)
+# Upstream merge — v0.3.1 (completed 2026-07-08)
 
-This document tracks the planned merge of
-[`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
-**v0.3.1** into the fork. It is **not** an emergency CPU fix — upstream
-v0.3.x improves correctness and data contracts but does not ship parallel
-analyst execution or major resource reductions.
+Merged [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
+**v0.3.1** on branch `merge/upstream-v0.3.1` → fork **`0.3.1+hf.1`**.
 
 ## Current state
 
 | | Fork | Upstream |
 |---|------|----------|
-| Version | `0.2.5+hf.4` | `v0.3.1` (2026-07-05) |
+| Version | `0.3.1+hf.1` | `v0.3.1` (2026-07-05) |
 | Web UI / Coolify | Yes | No |
 | Resilience (run timeout, Ollama circuit breaker) | Yes | Partial (`TRADINGAGENTS_LLM_MAX_RETRIES` in v0.3.1) |
 
-## Worth taking from v0.3.x
+## Integrated from v0.3.x
 
 - Debate/risk router crash fix (#1088) — shared path maps on every edge
 - Checkpoint thread id respects analyst + depth selection (#1089)

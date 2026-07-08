@@ -57,7 +57,8 @@ agents" in the foundation-task report.
 |----------------------------------|--------------------------------------------------------|
 | Local dev / `pytest`             | `sqlite+aiosqlite:///:memory:` (the default)           |
 | Local Postgres in docker compose | `postgresql+asyncpg://postgres:postgres@db:5432/app`   |
-| Coolify (Neon)                   | `postgresql+asyncpg://...neon.tech/...?ssl=require`    |
+| Coolify Postgres (same server)   | `postgresql+asyncpg://user:pass@<db-uuid>:5432/tradingagents` |
+| Neon (managed)                   | `postgresql+asyncpg://…neon.tech/…?ssl=require`        |
 
 The SQLite default lets the foundation smoke tests run without any
 external services. Postgres-specific tests (downstream tasks) opt into

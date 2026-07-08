@@ -133,6 +133,22 @@ The canonical provider-to-env-var mapping is
 | `ADMIN_PASSWORD_HASH` | Next login uses the new hash; existing JWT sessions stay valid until their `exp` (default 7 days). | Re-generate from a new password. |
 | `JWT_SECRET` | Every existing session is invalidated immediately — your "log out everywhere" lever. | Re-generate. Users re-log-in. |
 | `FERNET_KEY` | Not currently supported (see below). | **Stored provider API keys become permanently unreadable.** No recovery. The user must re-enter them via the Settings page. Back this key up. |
+| `DATABASE_URL` (Postgres password) | Update the password inside Postgres **and** the URL in Coolify, then **Deploy** (not Restart). | App health goes `degraded` (`db_check_failed`). |
+
+### Postgres password rotation (Coolify)
+
+If the database was created with the template `PLACEHOLDER` password, rotate
+before exposing the host:
+
+1. In the app container (or after deploy with the helper script):
+   `ROTATE_DB_PASSWORD='<new-secret>' python web/backend/scripts/rotate_db_password.py`
+2. Update `DATABASE_URL` on the application to
+   `postgresql+asyncpg://tradingagents:<new-secret>@<db-uuid>:5432/tradingagents`
+3. **Deploy** the application so the new URL is picked up.
+
+Deduplicate env vars in Coolify if the UI shows two rows per key — the
+second set can override the first with stale values (wrong model defaults
+or an old admin hash).
 
 ### `JWT_SECRET` rotation
 
@@ -238,7 +254,7 @@ invariant as `db: "down"`.
 ### Why `degraded` is still HTTP 200
 
 Coolify treats any non-2xx health response as "container unhealthy"
-and restarts the container. A transient Neon connection blip is not a
+and restarts the container. A transient Postgres connection blip is not a
 reason to restart — the app has nothing to fix by being killed. By
 returning 200 with `status: "degraded"` we let humans and dashboards
 see the failure while the container itself stays up. Module docstring
@@ -350,8 +366,8 @@ the runner's own structured logs the dominant signal.
 | Symptom | Where to look |
 |---|---|
 | SSE clients keep disconnecting mid-run | `grep event_bus.queue_full_dropped_frame` — a slow subscriber's per-run queue (size 200) overflowed and the live frame was dropped. The DB row is intact; the client recovers on reconnect via `Last-Event-ID`. If you see many of these for one `run_id`, the network path between the client and Coolify is the suspect. |
-| Health endpoint returns `degraded` | `grep health.db_check_failed` for the underlying exception; check the Neon dashboard; verify `DATABASE_URL` is reachable from the container. |
-| Login lockout, "I'm locked out" | The 5-failures-per-5-minutes ban is persisted to `login_attempts`. Inspect with `SELECT ip, COUNT(*) FROM login_attempts WHERE attempted_at > now() - interval '1 hour' AND succeeded = false GROUP BY ip;` from the Neon SQL editor. To clear: `DELETE FROM login_attempts WHERE ip = '<your-ip>'::inet;` (also documented in [`DEPLOY.md` Troubleshooting](../../DEPLOY.md)). |
+| Health endpoint returns `degraded` | `grep health.db_check_failed` for the underlying exception; verify `DATABASE_URL` is reachable from the container (Coolify DB internal hostname or Neon with `?ssl=require`). |
+| Login lockout, "I'm locked out" | The 5-failures-per-5-minutes ban is persisted to `login_attempts`. Inspect with `SELECT ip, COUNT(*) FROM login_attempts WHERE attempted_at > now() - interval '1 hour' AND succeeded = false GROUP BY ip;` from any Postgres client (`psql`, Coolify DB terminal, or Neon SQL editor). To clear: `DELETE FROM login_attempts WHERE ip = '<your-ip>'::inet;` (also documented in [`DEPLOY.md` Troubleshooting](../../DEPLOY.md)). |
 | A run is stuck at status `running` | If the container is alive and there is no live task driving it, restart the container — the `crash_recovery` startup hook flips it to `interrupted` and emits the terminal SSE event. Look for `crash_recovery.transitioned_orphaned_runs` in the boot logs. |
 | Disk filling up | `grep disk_pruner` for recent pass-complete counts. If `reports_deleted` is 0 over many passes, your `RETENTION_DAYS` may be set higher than needed. |
 | Provider call returned 401 / decrypt failed | `grep run_service.api_key_decrypt_failed` — usually means `FERNET_KEY` was rotated or replaced without re-encrypting the `api_keys` rows. Re-enter the key via Settings. |
@@ -365,8 +381,8 @@ the runner's own structured logs the dominant signal.
 
 | Asset | Why | How |
 |---|---|---|
-| Neon database | The runs / events / settings / login_attempts tables are the system of record. | Neon's built-in point-in-time snapshots are sufficient. Confirm the retention window in the Neon project settings. |
-| `FERNET_KEY` | Without it the `api_keys` table cannot be decrypted and is dead weight. | Password manager. **Do not** store it in the same place as the Neon backups — losing both at once destroys the credential store with no recovery. |
+| Postgres database | The runs / events / settings / login_attempts tables are the system of record. | **Neon:** built-in point-in-time snapshots (confirm retention in the Neon project). **Coolify Postgres:** back up the database volume or use `pg_dump` on a schedule — there is no external PITR unless you add it. |
+| `FERNET_KEY` | Without it the `api_keys` table cannot be decrypted and is dead weight. | Password manager. **Do not** store it in the same place as database backups — losing both at once destroys the credential store with no recovery. |
 | `<DATA_DIR>/memory/trading_memory.md` | The append-only cross-run decision log. Drives the "past decisions" context that the Portfolio Manager prompt consumes on every new run. This is the one file in the volume that cannot be regenerated. | Periodic copy off the volume (e.g. nightly `rsync` from inside the container, or a Coolify scheduled task). |
 | `<DATA_DIR>/logs/` and `<DATA_DIR>/reports/` | Per-run reports + agent intermediates. Reproducible by re-running, but reproduction costs LLM tokens. | Optional. Most operators do not back these up. |
 | `<DATA_DIR>/cache/checkpoints/` | Per-`(ticker, date)` LangGraph checkpoints. Used only for resume of an interrupted run. | Not needed. A successful run completes without ever reading its checkpoint, and the pruner reaps the file after `RETENTION_DAYS`. |
