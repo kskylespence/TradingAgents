@@ -14,6 +14,16 @@ for the per-deploy cut workflow.
 
 ## [Unreleased]
 
+## [0.2.5+hf.6] — 2026-07-08
+
+### Fixed
+
+- **`httpx[http2]` dependency.** The shared `upstream_http` client enables
+  HTTP/2 for Ollama Cloud multiplexing, but the Docker image only installed
+  bare `httpx` — missing the `h2` extra caused every Ollama probe and model
+  catalog fetch to fail with `ImportError` on production deploys. Both
+  `pyproject.toml` files now declare `httpx[http2]`.
+
 ## [0.2.5+hf.5] — 2026-07-08
 
 ### Added
