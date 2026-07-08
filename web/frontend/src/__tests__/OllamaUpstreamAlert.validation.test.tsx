@@ -27,7 +27,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 import { OllamaUpstreamAlert } from "@/components/OllamaUpstreamAlert";
-import type { RunValidationError } from "@/lib/types";
+import type { OllamaHealth, RunValidationError } from "@/lib/types";
+
+const _health = (overrides: Partial<OllamaHealth> = {}): OllamaHealth => ({
+  status: "ok",
+  url: "https://ollama.com/v1",
+  model_count: 5,
+  error: null,
+  recent_attempts: [],
+  circuit_state: "closed",
+  ...overrides,
+});
 
 const _validation = (
   overrides: Partial<RunValidationError> = {},
@@ -105,12 +115,7 @@ describe("OllamaUpstreamAlert (validation prop)", () => {
     render(
       <OllamaUpstreamAlert
         provider="ollama"
-        health={{
-          status: "ok",
-          url: "https://ollama.com/v1",
-          model_count: 5,
-          error: null,
-        }}
+        health={_health()}
         validation={_validation()}
       />,
     );
@@ -135,12 +140,7 @@ describe("OllamaUpstreamAlert (validation prop)", () => {
     render(
       <OllamaUpstreamAlert
         provider="ollama"
-        health={{
-          status: "down",
-          url: "https://ollama.com/v1",
-          model_count: null,
-          error: "ConnectError('boom')",
-        }}
+        health={_health({ status: "down", model_count: null, error: "ConnectError('boom')" })}
         validation={null}
       />,
     );

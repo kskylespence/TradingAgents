@@ -37,6 +37,8 @@ function _h(
     url: "https://ollama.com/v1",
     model_count: status === "ok" ? 1 : null,
     error,
+    recent_attempts: [],
+    circuit_state: "closed",
   };
 }
 
