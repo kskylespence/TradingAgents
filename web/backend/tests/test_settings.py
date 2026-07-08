@@ -317,19 +317,17 @@ def test_delete_unknown_env_is_rejected(settings_client: TestClient) -> None:
 
 
 def test_get_defaults_returns_default_shape(settings_client: TestClient) -> None:
-    """With no row present, returns the schema defaults (enable_checkpoint=True)."""
+    """With no row present, returns lite VPS-friendly schema defaults."""
     resp = settings_client.get("/api/settings/defaults")
     assert resp.status_code == 200
     body = resp.json()
-    # The Pydantic UserDefaults model has enable_checkpoint=True by default.
     assert body["enable_checkpoint"] is True
-    # Optional fields default to None / null in JSON.
+    assert body["research_depth"] == 1
+    assert body["analysts"] == ["market", "social"]
     for optional in (
         "llm_provider",
         "quick_think_llm",
         "deep_think_llm",
-        "research_depth",
-        "analysts",
         "output_language",
         "thinking_config",
     ):

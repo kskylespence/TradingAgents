@@ -132,8 +132,8 @@ class UserDefaults(_FrontendModel):
     llm_provider: Optional[str] = None
     quick_think_llm: Optional[str] = None
     deep_think_llm: Optional[str] = None
-    research_depth: Optional[ResearchDepth] = None
-    analysts: Optional[list[AnalystKey]] = None
+    research_depth: Optional[ResearchDepth] = 1
+    analysts: Optional[list[AnalystKey]] = ["market", "social"]
     output_language: Optional[str] = None
     thinking_config: Optional[ThinkingConfig] = None
     enable_checkpoint: bool = True

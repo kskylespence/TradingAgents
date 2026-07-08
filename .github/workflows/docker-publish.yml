@@ -1,0 +1,59 @@
+# Build and push the Coolify-deployable image to GHCR so small VPS hosts
+# can pull a prebuilt artifact instead of running npm ci + pip install on-box.
+#
+# Trigger: manual dispatch, or push a fork release tag (v*-hf.* per
+# docs/RELEASING.md). Coolify can then use:
+#   ghcr.io/kskylespence/tradingagents:<tag-with-plus-as-dash>
+#
+# See DEPLOY.md § "Prebuilt image (GHCR)".
+
+name: Publish Docker image
+
+on:
+  push:
+    tags:
+      - "v*-hf.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: kskylespence/tradingagents
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive image tags
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # v0.2.5-hf.4 → 0.2.5-hf.4 (PEP 440 local segment uses - in git)
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "version_tag=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version_tag=manual-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version_tag }}

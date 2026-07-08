@@ -36,7 +36,66 @@ Before you start, you should have:
   the in-app **Settings** page.
 
 You do **not** need Docker on your workstation; Coolify builds the image on
-the VPS itself.
+the VPS itself. For small VPS hosts (2 vCPU / 8 GB), prefer a
+[prebuilt image from GHCR](#prebuilt-image-ghcr) so deploy does not
+saturate CPU during `npm ci` + `pip install`.
+
+---
+
+## VPS sizing
+
+| Topology | Minimum | Recommended | Notes |
+|----------|---------|-------------|-------|
+| Web UI + **cloud LLM** (OpenAI, Anthropic, Groq, Ollama Cloud) | 2 vCPU, 4 GB RAM | 2 vCPU, 8 GB RAM | The app is mostly idle between runs; analysis cost is API-side. |
+| **Docker build on VPS** (default Coolify path) | 2 vCPU, 8 GB RAM | 4 vCPU, 8 GB+ RAM | Build pegs CPU for 3–5 minutes (`npm ci`, Vite, dual `pip install`). Add [swap](#swap-for-deploy-builds) or use GHCR. |
+| Web UI + **local Ollama** on the same host | Not recommended | 4 vCPU, 16 GB RAM | Inference pegs CPU; 7B+ models need RAM the web stack also uses. Run Ollama on a **separate** machine and set `OLLAMA_BASE_URL` to it. |
+
+The web server itself is a single uvicorn process with no worker pool — it
+does not need horizontal scaling for v1 (one analysis run at a time via
+`GLOBAL_RUN_LOCK`).
+
+### Swap for deploy builds
+
+On a 2 vCPU / 8 GB VPS, add swap before the first Coolify build so a
+memory spike during `npm run build` does not trigger the OOM killer:
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+Swap does not fix local Ollama inference — it only cushions one-time
+deploy builds.
+
+### Prebuilt image (GHCR)
+
+Coolify can pull a prebuilt image instead of building on your VPS. The
+repo publishes to GitHub Container Registry on every `v*-hf.*` tag (see
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)):
+
+1. Cut a release tag per [`docs/RELEASING.md`](docs/RELEASING.md) (e.g.
+   `v0.2.5-hf.5`).
+2. Wait for the **Publish Docker image** workflow to finish on GitHub
+   Actions.
+3. In Coolify, switch the application from **Dockerfile** build to
+   **Docker image** and set:
+
+   ```
+   ghcr.io/kskylespence/tradingagents:0.2.5-hf.5
+   ```
+
+   (Use the PEP 440 version with `+` replaced by `-` in the tag, or
+   `:latest` for the most recent tagged build.)
+
+4. Make the package public once under GitHub → Packages → TradingAgents →
+   Package settings, or configure Coolify with a read-only `GITHUB_TOKEN`
+   / PAT that has `read:packages`.
+
+This removes the deploy-time CPU spike entirely — only container start +
+`alembic upgrade head` run on the VPS.
 
 ---
 
@@ -395,6 +454,21 @@ docker logs <coolify-app-container> 2>&1 | grep -E "alembic|INFO  \[alembic"
 # run is in progress):
 docker logs <coolify-app-container> 2>&1 | grep -i keepalive
 ```
+
+### VPS shut down or became unresponsive (CPU / OOM)
+
+If the provider power-cycled the VM during deploy or a first analysis run,
+see the full [VPS troubleshooting runbook](web/docs/operations.md#vps-troubleshooting).
+Quick checks on the host:
+
+```bash
+sudo dmesg -T | grep -iE 'killed process|out of memory' | tail -20
+docker stats --no-stream
+systemctl status ollama 2>/dev/null
+```
+
+Most common fixes: [prebuilt GHCR image](#prebuilt-image-ghcr), cloud LLM
+instead of local Ollama, [lite run settings](web/docs/operations.md#lite-vps-preset).
 
 ### Coolify failed deploy with `no space left on device`
 

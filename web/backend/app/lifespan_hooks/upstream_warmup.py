@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from fastapi import FastAPI
@@ -79,6 +80,24 @@ _refresh_task: Optional[asyncio.Task] = None
 _initial_warmup_task: Optional[asyncio.Task] = None
 
 
+def _should_warmup_ollama() -> bool:
+    """Return True only when Ollama catalog traffic is worth scheduling.
+
+    OpenAI-only VPS deploys must not probe ``localhost:11434`` on a
+    4-minute loop. Warmup runs when ``OLLAMA_BASE_URL`` is explicitly set
+    **and** either the active provider is Ollama or Ollama appears in the
+    credential-gated provider list (same rule as the Settings dropdown).
+    """
+    if not os.environ.get("OLLAMA_BASE_URL"):
+        return False
+    provider = (os.environ.get("TRADINGAGENTS_LLM_PROVIDER") or "").strip().lower()
+    if provider == "ollama":
+        return True
+    from tradingagents.providers import available_providers
+
+    return any(spec.key == "ollama" for spec in available_providers())
+
+
 @on_startup
 async def warmup_ollama(app: FastAPI) -> None:
     """Spawn the initial warmup + the periodic refresh loop.
@@ -87,8 +106,14 @@ async def warmup_ollama(app: FastAPI) -> None:
     function returns within microseconds even when ``list_ollama_models``
     would block for the full 20-second warmup timeout. Startup latency
     is unaffected by upstream health.
+
+    Skipped entirely when ``_should_warmup_ollama()`` is false (typical
+    cloud-LLM-only VPS).
     """
     global _refresh_task, _initial_warmup_task
+    if not _should_warmup_ollama():
+        log.info("upstream_warmup.skipped", extra={"reason": "ollama_not_configured"})
+        return
     _initial_warmup_task = asyncio.create_task(
         _initial_warmup(), name="ollama-warmup"
     )
@@ -197,4 +222,4 @@ async def shutdown_ollama(app: FastAPI) -> None:
     log.info("upstream_warmup.shutdown_complete")
 
 
-__all__ = ["shutdown_ollama", "warmup_ollama"]
+__all__ = ["_should_warmup_ollama", "shutdown_ollama", "warmup_ollama"]

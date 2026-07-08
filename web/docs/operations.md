@@ -49,6 +49,62 @@ silently runs with a publicly-known dev string.
 | `TRADINGAGENTS_LLM_READ_TIMEOUT` | `120` (seconds) | Replaces the `read` field of the `httpx.Timeout` applied to chat completions. The full default is `Timeout(connect=10, read=120, write=10, pool=10)`. The 120-second read is generous for thinking-model first-token latency but bounded so a hung upstream releases the `GLOBAL_RUN_LOCK` instead of pinning the app for httpx's 10-minute default. `connect`/`write`/`pool` are not env-overridable; an explicit `timeout` kwarg passed by callers replaces the whole `Timeout` object. |
 | `TRADINGAGENTS_RUN_MAX_SECONDS` | `1800` (30 min) | **v0.2.5+hf.4 — outer safety net.** Maximum wall-clock duration of a single run, enforced by `asyncio.wait_for` around `_run_engine` in `run_service._run_async`. On timeout, the cooperative `cancel_event` is set, the run is marked `failed` with a clear error naming this env var, and the existing `finally:` block releases `GLOBAL_RUN_LOCK` — so the single-concurrent-run lock cannot be pinned by a hung LLM call beyond this window. Bump for legitimately long thinking-model runs; the default covers all observed runs to date. |
 
+## Lite VPS preset
+
+For a **2 vCPU / 8 GB** host running only the web UI with a **cloud LLM**
+(no local `ollama serve` on the same box), set these in Coolify before
+your first analysis run:
+
+```env
+TRADINGAGENTS_MAX_DEBATE_ROUNDS=1
+TRADINGAGENTS_MAX_RISK_ROUNDS=1
+TRADINGAGENTS_RUN_MAX_SECONDS=1200
+TRADINGAGENTS_LLM_READ_TIMEOUT=90
+TRADINGAGENTS_LLM_MAX_RETRIES=3
+```
+
+Do **not** set `OLLAMA_BASE_URL` unless Ollama runs on a **remote**
+host (or you use Ollama Cloud). Leaving it unset avoids background
+catalog probes to `localhost:11434`.
+
+In the **New Run** UI (per-run overrides):
+
+- **Research depth**: Shallow (1)
+- **Analysts**: Market + Sentiment only (skip News and Fundamentals)
+- **Models**: mini / fast variants; avoid thinking models on small VPS
+
+Fresh installs also get `research_depth=1` and `analysts=["market","social"]`
+from `GET /api/settings/defaults` until the user saves different choices.
+
+See [VPS troubleshooting](#vps-troubleshooting) if the host shut down during
+deploy or a run.
+
+## VPS troubleshooting
+
+If the provider power-cycled the VM or SSH stopped responding, correlate
+**when** it happened before redeploying:
+
+```bash
+# OOM kills — most common "mysterious shutdown" on small VPS hosts
+sudo dmesg -T | grep -iE 'killed process|out of memory' | tail -20
+
+# Memory snapshot while the app is running
+docker stats --no-stream
+
+# Was local Ollama competing for CPU/RAM?
+systemctl status ollama 2>/dev/null
+curl -s localhost:11434/api/tags 2>/dev/null | head
+
+# Coolify build vs run: grep deploy window in app logs
+docker logs <coolify-app-container> 2>&1 | tail -100
+```
+
+| Timing | Likely cause | Fix |
+|--------|--------------|-----|
+| During first Coolify deploy | Docker build (`npm ci`, Vite, `pip install`) | [Prebuilt GHCR image](../../DEPLOY.md#prebuilt-image-ghcr), add swap, or upgrade VPS |
+| During first analysis run | Local Ollama on same host, or depth 5 + all analysts | Cloud LLM or remote Ollama; [lite preset](#lite-vps-preset) |
+| Idle after deploy | Unlikely this app alone | Check Coolify/Traefik/other containers on the host |
+
 ### Per-provider API keys (optional)
 
 Each of these can be pre-seeded at deploy time as an alternative to
@@ -299,6 +355,7 @@ the runner's own structured logs the dominant signal.
 | Background prune task crashed | `grep disk_pruner.tick_failed` for the traceback. The loop survives — the next tick still runs. |
 | Ollama model dropdown is empty or out of date | `grep ollama_models.fetch_failed` for the underlying error. The service never raises; it returns the last-good cached list on failure, or `[]` on cold start. Check the `url` and `error` fields in the log line. Most often: `OLLAMA_BASE_URL` is wrong or `OLLAMA_API_KEY` doesn't match the endpoint. `curl -H "Authorization: Bearer $OLLAMA_API_KEY" $OLLAMA_BASE_URL/models` from the container reproduces in isolation. |
 | Run failed with `model "X" not found` on Ollama | The picked model isn't in the live `/v1/models` for the configured endpoint. Pre-PR-0.2.5+hf.2 this was caused by the catalog listing local-Ollama tags against an Ollama Cloud endpoint; post-PR it's blocked at `POST /api/runs` pre-flight. If you see it now, the user has a stale browser tab — `/api/settings/defaults` auto-heal will clear it on next form load. |
+| VPS shut down or hung at 100% CPU | See [VPS troubleshooting](#vps-troubleshooting) — correlate deploy vs first-run timing with `dmesg` OOM lines and whether local Ollama is on the same host. |
 
 ## Backup recommendations
 
@@ -313,7 +370,7 @@ the runner's own structured logs the dominant signal.
 ## Further reading
 
 - [`../../DEPLOY.md`](../../DEPLOY.md) — Coolify setup walkthrough, DNS,
-  TLS, volume permissions, alembic troubleshooting.
+  TLS, volume permissions, VPS sizing, GHCR prebuilt images, alembic troubleshooting.
 - [`architecture.md`](architecture.md) — how the runner, event bus,
   observer, and crash-recovery layer fit together.
 - [`api.md`](api.md) — `/api/health` body shape, auth flow, SSE

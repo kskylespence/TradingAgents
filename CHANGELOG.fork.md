@@ -14,9 +14,44 @@ for the per-deploy cut workflow.
 
 ## [Unreleased]
 
+## [0.2.5+hf.5] — 2026-07-08
+
 ### Added
 
-- **Shared resilient HTTP client (`app.services.upstream_http`).** Every
+- **GHCR publish workflow (`.github/workflows/docker-publish.yml`).** Builds
+  and pushes the Coolify image to `ghcr.io/kskylespence/tradingagents` on
+  every `v*-hf.*` tag (and via manual dispatch) so small VPS hosts can pull
+  a prebuilt image instead of running `npm ci` + dual `pip install` on-box
+  during deploy. Documented in [`DEPLOY.md`](./DEPLOY.md) § Prebuilt image.
+
+- **Lite VPS operator docs.** [`DEPLOY.md`](./DEPLOY.md) now documents minimum
+  VPS sizing, swap for deploy builds, GHCR pull workflow, and OOM/CPU
+  triage. [`web/docs/operations.md`](./web/docs/operations.md) adds a
+  **Lite VPS preset** env block and **VPS troubleshooting** table (deploy
+  vs first-run correlation). [`.env.example`](./.env.example) mirrors the
+  preset.
+
+- **Upstream merge tracker ([`docs/UPSTREAM-MERGE.md`](./docs/UPSTREAM-MERGE.md)).**
+  Schedules the v0.3.1 merge as a dedicated task — stability fixes, not a
+  CPU emergency.
+
+- **Lite form defaults (`UserDefaults`).** Fresh installs now return
+  `research_depth=1` and `analysts=["market","social"]` from
+  `GET /api/settings/defaults` until the user saves different choices,
+  reducing first-run LLM call volume on small hosts.
+
+### Changed
+
+- **Ollama warmup gated (`upstream_warmup`).** The lifespan hook no-ops
+  unless `OLLAMA_BASE_URL` is explicitly set and Ollama is the active
+  provider or appears in `available_providers()`. OpenAI-only VPS deploys
+  no longer probe `localhost:11434` on a 4-minute background loop.
+  Tests: `web/backend/tests/test_lifespan_upstream_warmup.py` (+2).
+
+## [0.2.5+hf.4] — 2026-05-24
+
+### Added
+
   outbound call to Ollama (catalog list + per-model liveness probe) now
   routes through a single singleton `httpx.AsyncClient` wired with
   HTTP/2, `Limits(max_keepalive=10, max_connections=20,

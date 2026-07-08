@@ -68,6 +68,53 @@ def _reset_upstream_http():
 
 
 # --------------------------------------------------------------------------- #
+# 0. Warmup only when Ollama is explicitly configured                         #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_warmup_skipped_when_ollama_not_configured(monkeypatch) -> None:
+    """OpenAI-only deploys must not spawn background Ollama catalog tasks.
+
+    Without ``OLLAMA_BASE_URL``, ``list_ollama_models`` would default to
+    ``localhost:11434`` — wasted HTTP on every VPS that uses a cloud LLM.
+    """
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-placeholder")
+
+    from app.lifespan_hooks import upstream_warmup
+
+    await upstream_warmup.warmup_ollama(app=None)
+
+    assert upstream_warmup._initial_warmup_task is None
+    assert upstream_warmup._refresh_task is None
+
+
+@pytest.mark.asyncio
+async def test_warmup_starts_when_ollama_configured(monkeypatch) -> None:
+    """When Ollama is the active provider, warmup + refresh tasks spawn."""
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
+    async def trivial_list_models() -> list[str]:
+        return []
+
+    monkeypatch.setattr(
+        "app.services.ollama_models.list_ollama_models", trivial_list_models
+    )
+
+    from app.lifespan_hooks import upstream_warmup
+
+    await upstream_warmup.warmup_ollama(app=None)
+
+    assert upstream_warmup._initial_warmup_task is not None
+    assert upstream_warmup._refresh_task is not None
+
+    await upstream_warmup.shutdown_ollama(app=None)
+
+
+# --------------------------------------------------------------------------- #
 # 1. Startup MUST NOT block on a slow upstream                                #
 # --------------------------------------------------------------------------- #
 
@@ -81,6 +128,9 @@ async def test_warmup_does_not_block_startup(monkeypatch) -> None:
     Cloud would prevent the app from coming up at all — exactly the
     failure mode we're defending against.
     """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
     from app.lifespan_hooks import upstream_warmup
 
     async def slow_list_models() -> list[str]:
@@ -117,6 +167,9 @@ async def test_refresh_loop_calls_list_models_periodically(monkeypatch) -> None:
     of 4 minutes, and patch ``list_ollama_models`` to a counter so we can
     observe the call cadence directly.
     """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
     from app.lifespan_hooks import upstream_warmup
 
     call_count = {"n": 0}
@@ -163,6 +216,9 @@ async def test_shutdown_cancels_refresh_task_and_closes_client(monkeypatch) -> N
     connection pool) which surfaces as "unclosed transport" warnings in
     the next test that uses upstream_http.
     """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
     from app.lifespan_hooks import upstream_warmup
     from app.services import upstream_http
 

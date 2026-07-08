@@ -12,6 +12,7 @@ __pycache__/
 # legitimate frontend dirs (e.g. web/frontend/src/lib/, which TypeScript
 # resolves via the `@/lib/*` path alias).
 /build/
+web/backend/build/
 /develop-eggs/
 /dist/
 /downloads/
