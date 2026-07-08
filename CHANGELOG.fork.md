@@ -14,6 +14,16 @@ for the per-deploy cut workflow.
 
 ## [Unreleased]
 
+## [0.2.5+hf.7] — 2026-07-08
+
+### Changed
+
+- **Default Ollama model (`glm-5.2`).** `UserDefaults` now ships
+  `llm_provider=ollama` with `quick_think_llm` and `deep_think_llm` both
+  set to `glm-5.2` so fresh installs and the New Run form pre-select the
+  current GLM flagship. Added `glm-5.2` to the curated cloud snapshot;
+  probe-failure alternatives pin the newest GLM headline first.
+
 ## [0.2.5+hf.6] — 2026-07-08
 
 ### Fixed

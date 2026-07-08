@@ -129,9 +129,9 @@ class ThinkingConfig(_FrontendModel):
 
 
 class UserDefaults(_FrontendModel):
-    llm_provider: Optional[str] = None
-    quick_think_llm: Optional[str] = None
-    deep_think_llm: Optional[str] = None
+    llm_provider: Optional[str] = "ollama"
+    quick_think_llm: Optional[str] = "glm-5.2"
+    deep_think_llm: Optional[str] = "glm-5.2"
     research_depth: Optional[ResearchDepth] = 1
     analysts: Optional[list[AnalystKey]] = ["market", "social"]
     output_language: Optional[str] = None

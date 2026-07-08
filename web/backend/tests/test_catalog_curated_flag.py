@@ -60,6 +60,7 @@ def test_is_curated_function() -> None:
     from app.services.ollama_curated import is_curated
 
     # A known-curated model (in the 2026-05-23 snapshot).
+    assert is_curated("glm-5.2") is True
     assert is_curated("glm-5") is True
     # A known-deprioritised model (ollama/ollama#15453).
     assert is_curated("kimi-k2-thinking") is False

@@ -56,6 +56,9 @@ For a **2 vCPU / 8 GB** host running only the web UI with a **cloud LLM**
 your first analysis run:
 
 ```env
+TRADINGAGENTS_LLM_PROVIDER=ollama
+TRADINGAGENTS_QUICK_THINK_LLM=glm-5.2
+TRADINGAGENTS_DEEP_THINK_LLM=glm-5.2
 TRADINGAGENTS_MAX_DEBATE_ROUNDS=1
 TRADINGAGENTS_MAX_RISK_ROUNDS=1
 TRADINGAGENTS_RUN_MAX_SECONDS=1200
@@ -71,10 +74,11 @@ In the **New Run** UI (per-run overrides):
 
 - **Research depth**: Shallow (1)
 - **Analysts**: Market + Sentiment only (skip News and Fundamentals)
-- **Models**: mini / fast variants; avoid thinking models on small VPS
+- **Models**: `glm-5.2` quick + deep (default); avoid thinking models on small VPS
 
-Fresh installs also get `research_depth=1` and `analysts=["market","social"]`
-from `GET /api/settings/defaults` until the user saves different choices.
+Fresh installs also get `research_depth=1`, `analysts=["market","social"]`,
+`llm_provider=ollama`, and `glm-5.2` for both model slots from
+`GET /api/settings/defaults` until the user saves different choices.
 
 See [VPS troubleshooting](#vps-troubleshooting) if the host shut down during
 deploy or a run.

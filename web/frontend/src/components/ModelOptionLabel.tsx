@@ -32,7 +32,7 @@ export function ModelOptionLabel({ model }: { model: CatalogModel }) {
           data-testid="deprioritized-badge"
           title={
             "Not in Ollama's curated cloud catalog. May have reliability " +
-            "issues — consider glm-5, kimi-k2.6, or glm-5.1."
+            "issues — consider glm-5.2, kimi-k2.6, or glm-5.1."
           }
           aria-label="Deprioritized model — may have reliability issues"
           className="text-amber-600"

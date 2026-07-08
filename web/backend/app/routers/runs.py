@@ -81,9 +81,9 @@ async def _suggested_alternatives() -> list[str]:
       account actually has access to.
     * Models NOT cached as unhealthy.
 
-    Sorted alphabetically with ``glm-5`` pinned first when present
-    (curated headline), capped at 3 entries. Returning fewer than 3 is
-    fine — the UI handles the empty case.
+    Sorted alphabetically with the newest GLM headline model pinned first
+    when present (``glm-5.2`` → ``glm-5.1`` → ``glm-5``), capped at 3
+    entries. Returning fewer than 3 is fine — the UI handles the empty case.
     """
     from ..services.ollama_curated import CURATED_2026_05
     from ..services.ollama_models import (
@@ -97,12 +97,14 @@ async def _suggested_alternatives() -> list[str]:
         (mid for mid in CURATED_2026_05 if mid in available and mid not in unhealthy)
     )
 
-    # Pin glm-5 to the front when it survived the filter; the rest
-    # stays alphabetical so the order is deterministic.
+    # Pin the GLM headline model to the front when it survived the filter;
+    # prefer the newest release the snapshot knows about.
+    _HEADLINE_PIN_ORDER = ("glm-5.2", "glm-5.1", "glm-5")
     head: list[str] = []
-    if "glm-5" in candidates:
-        head.append("glm-5")
-        candidates.remove("glm-5")
+    for mid in _HEADLINE_PIN_ORDER:
+        if mid in candidates:
+            head.append(mid)
+            candidates.remove(mid)
     return (head + candidates)[:3]
 
 

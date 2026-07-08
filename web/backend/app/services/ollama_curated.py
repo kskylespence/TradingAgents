@@ -58,6 +58,7 @@ from __future__ import annotations
 CURATED_2026_05: frozenset[str] = frozenset(
     {
         # Z.AI GLM family
+        "glm-5.2",
         "glm-5",
         "glm-5.1",
         # Moonshot Kimi family
