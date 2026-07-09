@@ -14,6 +14,25 @@ for the per-deploy cut workflow.
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-user profiles (web).** Database-backed `users` table with `admin` and
+  `user` roles, per-user run/history isolation, JWT claims (`id`, `username`,
+  `role`), startup bootstrap of the env-configured admin account, and optional
+  `rob@rob` seeding via `ROB_INITIAL_PASSWORD`. Regular users cannot access
+  Settings or choose LLM provider/models — those values come from admin defaults
+  enforced server-side on `POST /api/runs`.
+
+- **Trading-terminal UI (web).** Dark default theme, HedgeFund Terminal branding,
+  market color tokens, Final Trade Decision pinned at the top of run reports
+  plus a hero card on the run view, and role-gated hiding of provider/model
+  metadata for non-admin users.
+
+### Changed
+
+- **Report ordering (web).** `final_trade_decision` is now the first section in
+  `ReportPanel` instead of last.
+
 ### Fixed
 
 - **CI (upstream gate).** Register the `asyncio` pytest marker, skip

@@ -87,8 +87,10 @@ def client(runs_engine, patched_session_factory) -> Iterator[TestClient]:
         async with factory() as session:
             yield session
 
+    from tests.helpers import make_auth_user
+
     def _override_user() -> AuthUser:
-        return AuthUser(username="test")
+        return make_auth_user()
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user] = _override_user
@@ -130,6 +132,7 @@ def _seed_run(factory, *, status: str, run_id: str | None = None, **overrides) -
     run_id = run_id or str(uuid.uuid4())
     payload = {
         "id": run_id,
+        "user_id": "00000000-0000-0000-0000-000000000001",
         "ticker": "RETRYME",
         "asset_type": "stock",
         "analysis_date": date(2026, 5, 19),

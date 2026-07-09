@@ -11,6 +11,8 @@ so they are deterministic + offline.
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -34,7 +36,7 @@ def _bypass_auth():
     from app.routers.announcements import get_current_user
     from app.schemas import AuthUser
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="test-user")
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="test-user")
     yield
     app.dependency_overrides.pop(get_current_user, None)
 

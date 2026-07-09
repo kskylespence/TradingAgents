@@ -13,7 +13,23 @@ const config: Config = {
       },
     },
     extend: {
+      fontFamily: {
+        mono: [
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Monaco",
+          "Consolas",
+          "Liberation Mono",
+          "Courier New",
+          "monospace",
+        ],
+      },
       colors: {
+        market: {
+          up: "hsl(var(--market-up))",
+          down: "hsl(var(--market-down))",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

@@ -16,6 +16,8 @@ binding into the ``String(36).with_variant(UUID, "postgresql")`` column.
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 import asyncio
 import time
 import uuid
@@ -78,7 +80,7 @@ def client(runs_engine, patched_session_factory) -> Iterator[TestClient]:
             yield session
 
     def _override_user() -> AuthUser:
-        return AuthUser(username="test")
+        return make_auth_user(username="test")
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user] = _override_user

@@ -103,7 +103,9 @@ class CatalogLanguage(_FrontendModel):
 
 
 class AuthUser(_FrontendModel):
+    id: UUID
     username: str
+    role: Literal["admin", "user"]
 
 
 class LoginRequest(_FrontendModel):

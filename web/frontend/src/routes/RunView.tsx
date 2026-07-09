@@ -1,4 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { AgentStatusGrid } from "@/components/AgentStatusGrid";
@@ -19,6 +21,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useRun } from "@/hooks/useRun";
 import { ApiError, api } from "@/lib/api";
 import type {
@@ -45,6 +48,7 @@ export default function RunView() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const isAdmin = useIsAdmin();
   const result = useRun(runId);
   const {
     run,
@@ -150,11 +154,11 @@ export default function RunView() {
   return (
     <div className="container flex flex-col gap-4 py-6">
       {/* Header */}
-      <Card>
+      <Card className="border-emerald-900/40 bg-card/80">
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-3">
-              <CardTitle className="text-2xl font-bold tracking-tight">
+              <CardTitle className="font-mono text-3xl font-bold tracking-tight text-emerald-400">
                 {run?.ticker ?? "—"}
               </CardTitle>
               {run?.asset_type ? (
@@ -167,11 +171,11 @@ export default function RunView() {
             </div>
             <CardDescription>
               {run?.analysis_date ? `Analysis date: ${run.analysis_date}` : "—"}
-              {run?.llm_provider ? ` • Provider: ${run.llm_provider}` : ""}
-              {run?.quick_think_llm
+              {isAdmin && run?.llm_provider ? ` • Provider: ${run.llm_provider}` : ""}
+              {isAdmin && run?.quick_think_llm
                 ? ` • Quick: ${run.quick_think_llm}`
                 : ""}
-              {run?.deep_think_llm
+              {isAdmin && run?.deep_think_llm
                 ? ` • Deep: ${run.deep_think_llm}`
                 : ""}
             </CardDescription>
@@ -234,6 +238,31 @@ export default function RunView() {
         </CardContent>
       </Card>
 
+      {(finalRating || reportSections.final_trade_decision) ? (
+        <Card className="border-emerald-600/40 bg-emerald-950/30">
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardDescription className="uppercase tracking-[0.2em] text-emerald-400/80">
+                Final trade decision
+              </CardDescription>
+              <CardTitle className="font-mono text-xl">
+                {run?.ticker ?? "—"}
+              </CardTitle>
+            </div>
+            {finalRating ? <DecisionBadge rating={finalRating} className="text-base px-4 py-1.5" /> : null}
+          </CardHeader>
+          {reportSections.final_trade_decision ? (
+            <CardContent>
+              <div className="prose prose-sm max-w-none text-foreground prose-headings:text-emerald-300">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {reportSections.final_trade_decision}
+                </ReactMarkdown>
+              </div>
+            </CardContent>
+          ) : null}
+        </Card>
+      ) : null}
+
       {/* Two-column body */}
       <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
         {/* Left: agent grid (with optional in-flight heartbeat row) */}
@@ -246,7 +275,10 @@ export default function RunView() {
         </div>
 
         {/* Right: tabs */}
-        <Tabs defaultValue="messages" className="flex flex-col">
+        <Tabs
+          defaultValue={runStatus === "completed" ? "report" : "messages"}
+          className="flex flex-col"
+        >
           <TabsList className="self-start">
             <TabsTrigger value="messages">Messages</TabsTrigger>
             <TabsTrigger value="report">Report</TabsTrigger>

@@ -13,6 +13,8 @@ want absent on a per-test basis to defeat that fixture.
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,7 +39,7 @@ def authed_client() -> TestClient:
     from app.routers.catalog import get_current_user
     from app.schemas import AuthUser
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="tester")
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
     client = TestClient(app)
     try:
         yield client

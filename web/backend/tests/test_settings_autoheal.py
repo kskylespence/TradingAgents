@@ -71,9 +71,9 @@ def autoheal_client(monkeypatch):
             yield session
 
     app.dependency_overrides[get_session] = _yield_session
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(
-        username="tester"
-    )
+    from tests.helpers import make_auth_user
+
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
 
     client = TestClient(app)
     client.cookies.set(CSRF_COOKIE_NAME, CSRF_TOKEN)

@@ -50,13 +50,21 @@ log = logging.getLogger(__name__)
 # Once ``app/auth.py`` lands, the try-block import replaces the stub
 # automatically — no edits needed here. Mirrors the catalog router pattern.
 try:
-    from app.auth import get_current_user  # type: ignore[import-not-found]
+    from app.auth import get_current_user, require_admin  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover — covered when AUTH team's module is absent
     from app.schemas import AuthUser
+    from uuid import UUID
 
     def get_current_user() -> AuthUser:
         """Placeholder dep until the AUTH team's ``get_current_user`` lands."""
-        return AuthUser(username="anonymous")
+        return AuthUser(
+            id=UUID("00000000-0000-0000-0000-000000000099"),
+            username="anonymous",
+            role="admin",
+        )
+
+    def require_admin(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+        return user
 
 
 # Set of provider env-var names this system knows about. ``None`` values
@@ -108,7 +116,7 @@ def _ensure_known_env(env: str) -> None:
 @router.get("/api-keys", response_model=list[ApiKeyStatus])
 async def list_api_keys(
     db: AsyncSession = Depends(get_session),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ) -> list[ApiKeyStatus]:
     """Return one ``ApiKeyStatus`` per provider env-var the system knows about.
 
@@ -139,7 +147,7 @@ async def put_api_key(
     env: str,
     body: _ApiKeyPutBody,
     db: AsyncSession = Depends(get_session),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ) -> Response:
     """Encrypt ``value`` and UPSERT into ``api_keys`` keyed by env-var name.
 
@@ -174,7 +182,7 @@ async def put_api_key(
 async def delete_api_key(
     env: str,
     db: AsyncSession = Depends(get_session),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ) -> Response:
     """Drop the stored row for ``env``. No-op if it never existed."""
     _ensure_known_env(env)
@@ -248,7 +256,7 @@ async def _is_model_valid(provider: str | None, model: str | None, mode: str) ->
 @router.get("/defaults", response_model=UserDefaults)
 async def get_defaults(
     db: AsyncSession = Depends(get_session),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ) -> UserDefaults:
     """Return the singleton ``user_defaults`` row with stale models auto-healed.
 
@@ -290,7 +298,7 @@ async def get_defaults(
 async def put_defaults(
     body: UserDefaults,
     db: AsyncSession = Depends(get_session),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ) -> UserDefaults:
     """Partial-merge ``body`` into the singleton row, creating it if missing.
 

@@ -66,7 +66,7 @@ export default function Login() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-xl">Sign in</CardTitle>
           <CardDescription>
-            TradingAgents control panel. Single admin account.
+            HedgeFund Terminal — sign in to continue.
           </CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit}>

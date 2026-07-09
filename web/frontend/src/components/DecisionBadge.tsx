@@ -11,11 +11,11 @@ import type { Rating } from "@/lib/types";
  */
 
 const RATING_STYLES: Record<Rating, string> = {
-  Buy: "bg-green-600 text-white",
+  Buy: "bg-market-up text-black shadow-[0_0_20px_hsl(var(--market-up)/0.35)]",
   Overweight: "bg-green-400 text-black",
   Hold: "bg-slate-500 text-white",
   Underweight: "bg-orange-500 text-white",
-  Sell: "bg-red-600 text-white",
+  Sell: "bg-market-down text-white shadow-[0_0_20px_hsl(var(--market-down)/0.35)]",
 };
 
 export interface DecisionBadgeProps {

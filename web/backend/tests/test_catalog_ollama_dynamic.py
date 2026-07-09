@@ -15,6 +15,8 @@ doesn't work."
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -30,7 +32,7 @@ def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Ensure ollama is configured so the filter doesn't strip it.
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="tester")
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
     client = TestClient(app)
     try:
         yield client

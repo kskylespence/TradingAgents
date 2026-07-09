@@ -31,7 +31,13 @@ except ImportError:  # pragma: no cover — covered when AUTH team lands
 
     def get_current_user() -> AuthUser:
         """Placeholder dep until the AUTH team's ``get_current_user`` lands."""
-        return AuthUser(username="anonymous")
+        from uuid import UUID
+
+        return AuthUser(
+            id=UUID("00000000-0000-0000-0000-000000000099"),
+            username="anonymous",
+            role="admin",
+        )
 
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])

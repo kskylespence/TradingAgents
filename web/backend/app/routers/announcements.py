@@ -26,7 +26,13 @@ except ImportError:  # pragma: no cover - exercised when auth team hasn't landed
     from app.schemas import AuthUser
 
     def get_current_user() -> AuthUser:  # type: ignore[misc]
-        return AuthUser(username="anonymous")
+        from uuid import UUID
+
+        return AuthUser(
+            id=UUID("00000000-0000-0000-0000-000000000099"),
+            username="anonymous",
+            role="admin",
+        )
 
 
 from . import register

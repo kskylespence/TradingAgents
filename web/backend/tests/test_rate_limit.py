@@ -45,11 +45,17 @@ def shared_engine(tmp_path) -> AsyncEngine:
         f"sqlite+aiosqlite:///{db_path.as_posix()}", future=True
     )
 
-    async def _create_schema() -> None:
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async def _setup() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        from tests.helpers import seed_admin_user
 
-    asyncio.get_event_loop().run_until_complete(_create_schema())
+        async with factory() as session:
+            await seed_admin_user(session, password_hash=PASSWORD_HASH)
+
+    asyncio.get_event_loop().run_until_complete(_setup())
     try:
         yield engine
     finally:

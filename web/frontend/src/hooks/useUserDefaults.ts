@@ -12,10 +12,11 @@ import type { UserDefaults } from "@/lib/types";
  * every visit. All fields are nullable; the form falls back to catalog
  * defaults (first provider, etc.) for anything the user hasn't saved.
  */
-export function useUserDefaults(): UseQueryResult<UserDefaults> {
+export function useUserDefaults(enabled = true): UseQueryResult<UserDefaults> {
   return useQuery({
     queryKey: ["settings", "defaults"],
     queryFn: () => api.get<UserDefaults>("/api/settings/defaults"),
+    enabled,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: false,

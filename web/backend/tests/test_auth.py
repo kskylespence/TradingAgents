@@ -54,11 +54,17 @@ def shared_engine(tmp_path) -> AsyncEngine:
         f"sqlite+aiosqlite:///{db_path.as_posix()}", future=True
     )
 
-    async def _create_schema() -> None:
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async def _setup() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        from tests.helpers import seed_admin_user
 
-    asyncio.get_event_loop().run_until_complete(_create_schema())
+        async with factory() as session:
+            await seed_admin_user(session, password_hash=PASSWORD_HASH)
+
+    asyncio.get_event_loop().run_until_complete(_setup())
     try:
         yield engine
     finally:
@@ -225,6 +231,8 @@ def test_me_with_expired_jwt_returns_401(
     from app.config import get_settings
     get_settings.cache_clear()
 
+    from uuid import UUID
+
     from app.auth import COOKIE_ACCESS_TOKEN, create_access_token
     from app.db import get_session
     from app.main import create_app
@@ -242,7 +250,11 @@ def test_me_with_expired_jwt_returns_401(
 
     try:
         # Mint an already-expired token (TTL is -1s so exp < iat).
-        expired_token = create_access_token("test-admin")
+        expired_token = create_access_token(
+            user_id=UUID("00000000-0000-0000-0000-000000000001"),
+            username="test-admin",
+            role="admin",
+        )
         with TestClient(app) as c:
             c.cookies.set(COOKIE_ACCESS_TOKEN, expired_token)
             resp = c.get("/api/auth/me")
@@ -262,7 +274,11 @@ def test_login_then_me_round_trip(client: TestClient) -> None:
     # TestClient automatically persists cookies across calls.
     resp = client.get("/api/auth/me")
     assert resp.status_code == 200
-    assert resp.json() == {"username": "test-admin"}
+    assert resp.json() == {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "username": "test-admin",
+        "role": "admin",
+    }
 
 
 def test_logout_clears_cookies(client: TestClient) -> None:
@@ -374,6 +390,8 @@ def test_decode_access_token_rejects_garbage() -> None:
     """Unit test on the helper itself — not a TestClient round-trip."""
     import os
     os.environ["JWT_SECRET"] = "test-jwt-secret-not-for-production"
+    from uuid import UUID
+
     from app.config import get_settings
     get_settings.cache_clear()
     from app.auth import create_access_token, decode_access_token
@@ -385,7 +403,13 @@ def test_decode_access_token_rejects_garbage() -> None:
     assert ei.value.status_code == 401
 
     # Correct round-trip
-    token = create_access_token("alice")
+    token = create_access_token(
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+        username="alice",
+        role="user",
+    )
     payload = decode_access_token(token)
-    assert payload["sub"] == "alice"
+    assert payload["sub"] == "00000000-0000-0000-0000-000000000001"
+    assert payload["username"] == "alice"
+    assert payload["role"] == "user"
     assert "exp" in payload and "iat" in payload

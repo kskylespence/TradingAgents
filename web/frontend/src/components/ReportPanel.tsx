@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
  * and the order downstream report-rendering code expects.
  */
 export const REPORT_SECTION_ORDER: readonly string[] = [
+  "final_trade_decision",
   "market_report",
   "sentiment_report",
   "news_report",
   "fundamentals_report",
   "investment_plan",
   "trader_investment_plan",
-  "final_trade_decision",
 ];
 
 const SECTION_LABELS: Record<string, string> = {
@@ -86,8 +86,9 @@ interface ReportSectionProps {
 
 function ReportSection({ title, content, defaultOpen = true }: ReportSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const isDecision = title === "Final Trade Decision";
   return (
-    <Card>
+    <Card className={isDecision ? "border-emerald-700/50 bg-emerald-950/20" : undefined}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

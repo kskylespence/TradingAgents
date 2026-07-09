@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useHistory } from "@/hooks/useHistory";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import type { Rating, RunStatus, RunSummary } from "@/lib/types";
 
 const STATUS_OPTIONS: Array<{ value: "all" | RunStatus; label: string }> = [
@@ -74,6 +75,8 @@ function useDebounced<T>(value: T, delay = 300): T {
 
 export default function History() {
   const navigate = useNavigate();
+  const isAdmin = useIsAdmin();
+  const colCount = isAdmin ? 6 : 5;
 
   const [tickerInput, setTickerInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RunStatus>("all");
@@ -101,11 +104,11 @@ export default function History() {
 
   return (
     <div className="container py-8">
-      <Card>
+      <Card className="border-emerald-900/40 bg-card/80">
         <CardHeader>
-          <CardTitle>History</CardTitle>
+          <CardTitle className="font-mono tracking-tight">Run blotter</CardTitle>
           <CardDescription>
-            Past runs, newest first. Click any row to open the full report.
+            Past analyses, newest first. Click a row to open the full report.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -139,15 +142,17 @@ export default function History() {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto rounded-md border">
+          <div className="overflow-x-auto rounded-md border border-emerald-900/30">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2 font-medium">Date</th>
                   <th className="px-4 py-2 font-medium">Ticker</th>
                   <th className="px-4 py-2 font-medium">Rating</th>
                   <th className="px-4 py-2 font-medium">Depth</th>
-                  <th className="px-4 py-2 font-medium">Provider</th>
+                  {isAdmin ? (
+                    <th className="px-4 py-2 font-medium">Provider</th>
+                  ) : null}
                   <th className="px-4 py-2 font-medium text-right">Elapsed</th>
                 </tr>
               </thead>
@@ -155,7 +160,7 @@ export default function History() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <tr key={`sk-${i}`} className="border-t">
-                      {Array.from({ length: 6 }).map((__, j) => (
+                      {Array.from({ length: colCount }).map((__, j) => (
                         <td key={j} className="px-4 py-3">
                           <Skeleton className="h-4 w-full max-w-[140px]" />
                         </td>
@@ -164,7 +169,7 @@ export default function History() {
                   ))
                 ) : isError ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center">
+                    <td colSpan={colCount} className="px-4 py-10 text-center">
                       <div className="space-y-3">
                         <p className="text-sm text-destructive">
                           Failed to load history
@@ -185,7 +190,7 @@ export default function History() {
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-16">
+                    <td colSpan={colCount} className="px-4 py-16">
                       <div className="flex flex-col items-center justify-center gap-3 text-center">
                         <p className="text-sm text-muted-foreground">
                           No runs yet.
@@ -227,7 +232,9 @@ export default function History() {
                         )}
                       </td>
                       <td className="px-4 py-3">{run.research_depth}</td>
-                      <td className="px-4 py-3">{run.llm_provider}</td>
+                      {isAdmin ? (
+                        <td className="px-4 py-3">{run.llm_provider}</td>
+                      ) : null}
                       <td className="px-4 py-3 text-right font-mono tabular-nums">
                         {formatMMSS(run.elapsed_seconds)}
                       </td>

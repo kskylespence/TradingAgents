@@ -49,7 +49,13 @@ try:
     from ..auth import get_current_user
 except ImportError:  # pragma: no cover — auth module is part of the foundation
     def get_current_user() -> AuthUser:  # type: ignore[no-redef]
-        return AuthUser(username="anonymous")
+        from uuid import UUID
+
+        return AuthUser(
+            id=UUID("00000000-0000-0000-0000-000000000099"),
+            username="anonymous",
+            role="admin",
+        )
 
 
 router = APIRouter(prefix="/history", tags=["history"])
@@ -142,7 +148,7 @@ async def list_history(
         description="Exact-match status filter (e.g. 'completed').",
     ),
     session: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> HistoryPage:
     """List runs newest-first with cursor pagination.
 
@@ -151,6 +157,8 @@ async def list_history(
     ``next_cursor`` and drop it from the response body.
     """
     stmt = select(Run).order_by(desc(Run.created_at), desc(Run.id))
+    if user.role != "admin":
+        stmt = stmt.where(Run.user_id == str(user.id))
     if ticker is not None:
         stmt = stmt.where(Run.ticker == ticker)
     if status_filter is not None:

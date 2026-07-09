@@ -14,6 +14,10 @@ this suite is exercising.
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 import asyncio
 import json
 import time
@@ -106,7 +110,7 @@ def client(runs_engine, patched_session_factory) -> Iterator[TestClient]:
             yield session
 
     def _override_user() -> AuthUser:
-        return AuthUser(username="test")
+        return make_auth_user(username="test")
 
     # Best-effort CSRF disable: monkey-patch the predicate to never
     # require the token. TestClient does not include the cookie/header
@@ -443,7 +447,8 @@ def test_resume_happy_path_returns_new_run_id(
             session.add(
                 Run(
                     id=parent_id,
-                    ticker=ticker,
+                    user_id=TEST_ADMIN_ID,
+                ticker=ticker,
                     asset_type="stock",
                     analysis_date=analysis_date,
                     analysts=["market"],

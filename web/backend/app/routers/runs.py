@@ -58,6 +58,10 @@ from ..schemas import (
     UnhealthyModel,
 )
 from ..services import event_bus, run_service
+from ..services.run_access import (
+    apply_admin_defaults_for_user,
+    require_run_access,
+)
 from . import register
 
 log = logging.getLogger(__name__)
@@ -217,7 +221,7 @@ async def _validate_and_probe(body: RunRequest) -> None:
 async def create_run(
     body: RunRequest,
     db: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Queue a new run.
 
@@ -228,8 +232,10 @@ async def create_run(
     liveness probe (Ollama only) before launching the engine — see
     ``_validate_and_probe``.
     """
+    if user.role != "admin":
+        body = await apply_admin_defaults_for_user(body, db)
     await _validate_and_probe(body)
-    run_id = await run_service.start_run(body, db)
+    run_id = await run_service.start_run(body, db, user_id=user.id)
     return {"run_id": str(run_id), "status": "queued"}
 
 
@@ -242,14 +248,10 @@ async def create_run(
 async def get_run(
     run_id: UUID,
     db: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> RunDetail:
     """Load a run row + compute derived fields (elapsed, resumable)."""
-    row = await db.get(Run, str(run_id))
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
+    row = require_run_access(user, await db.get(Run, str(run_id)))
     return _to_detail(row)
 
 
@@ -262,7 +264,8 @@ async def get_run(
 async def stream_events(
     run_id: UUID,
     request: Request,
-    _user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+    user: AuthUser = Depends(get_current_user),
 ) -> EventSourceResponse:
     """Server-Sent Events stream of every event for ``run_id``.
 
@@ -276,6 +279,7 @@ async def stream_events(
     - The client disconnects (FastAPI cancels the request task and the
       generator raises ``CancelledError``, which we swallow).
     """
+    require_run_access(user, await db.get(Run, str(run_id)))
     last_event_id = _parse_last_event_id(request.headers.get("Last-Event-ID"))
 
     async def _gen() -> AsyncIterator[dict]:
@@ -330,9 +334,11 @@ def _parse_last_event_id(raw: str | None) -> int | None:
 )
 async def cancel(
     run_id: UUID,
-    _user: AuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+    user: AuthUser = Depends(get_current_user),
 ) -> Response:
     """Signal a graceful cancellation. 204 even if the run isn't active."""
+    require_run_access(user, await db.get(Run, str(run_id)))
     await run_service.cancel_run(run_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -344,14 +350,15 @@ async def cancel(
 async def resume(
     run_id: UUID,
     db: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Spawn a new run that resumes from ``run_id``'s checkpoint.
 
     Returns ``{run_id, parent_run_id}`` so the frontend can subscribe
     to the new SSE stream.
     """
-    new_id = await run_service.resume_run(run_id, db)
+    require_run_access(user, await db.get(Run, str(run_id)))
+    new_id = await run_service.resume_run(run_id, db, user_id=user.id)
     return {"run_id": str(new_id), "parent_run_id": str(run_id)}
 
 
@@ -362,7 +369,7 @@ async def resume(
 async def retry(
     run_id: UUID,
     db: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Spawn a sibling run from a failed/cancelled run's persisted params.
 
@@ -377,11 +384,7 @@ async def retry(
     ``interrupted`` already has ``/resume``; ``completed`` / ``running``
     / ``queued`` are not retry-shaped.
     """
-    parent = await db.get(Run, str(run_id))
-    if parent is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
+    parent = require_run_access(user, await db.get(Run, str(run_id)))
     if parent.status not in {"failed", "cancelled"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -404,7 +407,7 @@ async def retry(
         enable_checkpoint=bool(parent.checkpoint_enabled),
     )
     await _validate_and_probe(req)
-    new_id = await run_service.start_run(req, db)
+    new_id = await run_service.start_run(req, db, user_id=user.id)
     return {"run_id": str(new_id), "parent_run_id": str(run_id)}
 
 
@@ -418,7 +421,7 @@ async def get_report(
     run_id: UUID,
     format: str = Query("md", pattern="^(md|json|zip)$"),
     db: AsyncSession = Depends(get_session),
-    _user: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> Response:
     """Download the run's report in markdown, JSON, or zip-archive form.
 
@@ -426,11 +429,7 @@ async def get_report(
     :func:`run_service._finalize_completion`. 404 if the run hasn't
     completed yet or the directory is missing.
     """
-    row = await db.get(Run, str(run_id))
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Run not found"
-        )
+    row = require_run_access(user, await db.get(Run, str(run_id)))
     if not row.report_dir:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

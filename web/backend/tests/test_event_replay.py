@@ -19,6 +19,8 @@ DB across publish/subscribe calls within a single test.
 
 from __future__ import annotations
 
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
@@ -82,6 +84,7 @@ async def seeded_run(event_bus_engine) -> uuid.UUID:
         session.add(
             Run(
                 id=str(run_id),
+                user_id=TEST_ADMIN_ID,
                 ticker="TEST",
                 asset_type="stock",
                 analysis_date=date(2026, 5, 20),

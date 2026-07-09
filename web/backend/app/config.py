@@ -62,6 +62,13 @@ class Settings(BaseSettings):
         description="Required HMAC secret for JWT signing. MUST be set via env var.",
     )
     jwt_ttl_seconds: int = Field(default=604800)  # 7 days
+    rob_initial_password: str = Field(
+        default="",
+        description=(
+            "Initial plaintext password for the rob@rob user account. "
+            "Only used on first boot when the user does not yet exist."
+        ),
+    )
 
     # --- Encryption (Fernet, for stored API keys) ---
     fernet_key: str = Field(

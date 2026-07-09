@@ -260,7 +260,7 @@ def get_active_run_id() -> UUID | None:
 # --------------------------------------------------------------------------- #
 
 
-async def start_run(req: S.RunRequest, db: AsyncSession) -> UUID:
+async def start_run(req: S.RunRequest, db: AsyncSession, *, user_id: UUID) -> UUID:
     """Persist a queued run row and spawn its lifecycle task.
 
     Returns the new ``run_id``. Raises HTTP 409 if another run is already
@@ -281,6 +281,7 @@ async def start_run(req: S.RunRequest, db: AsyncSession) -> UUID:
 
     row = Run(
         id=str(run_id),
+        user_id=str(user_id),
         ticker=req.ticker,
         asset_type=asset_type,
         analysis_date=req.analysis_date,
@@ -320,7 +321,7 @@ async def cancel_run(run_id: UUID) -> None:
         event.set()
 
 
-async def resume_run(parent_id: UUID, db: AsyncSession) -> UUID:
+async def resume_run(parent_id: UUID, db: AsyncSession, *, user_id: UUID) -> UUID:
     """Create a NEW run that resumes from ``parent_id``'s checkpoint.
 
     Per the plan: only allowed when the parent's status is
@@ -362,7 +363,7 @@ async def resume_run(parent_id: UUID, db: AsyncSession) -> UUID:
         anthropic_effort=thinking_cfg.get("anthropic_effort"),
         enable_checkpoint=True,
     )
-    return await start_run(req, db)
+    return await start_run(req, db, user_id=user_id)
 
 
 # --------------------------------------------------------------------------- #

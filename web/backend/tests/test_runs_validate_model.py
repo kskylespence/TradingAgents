@@ -35,15 +35,15 @@ def runs_client(monkeypatch):
     # Spy on start_run so we can prove it WAS NOT called on validation failures.
     calls: list[tuple] = []
 
-    async def _spy_start_run(body, db):
+    async def _spy_start_run(body, db, *, user_id=None):
         calls.append((body, db))
         return uuid4()
 
     monkeypatch.setattr(run_service, "start_run", _spy_start_run)
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(
-        username="tester"
-    )
+    from tests.helpers import make_auth_user
+
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
 
     client = TestClient(app)
     client.cookies.set(CSRF_COOKIE_NAME, CSRF_TOKEN)

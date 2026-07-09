@@ -36,6 +36,8 @@ predicate stub.
 
 from __future__ import annotations
 
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 from collections.abc import Iterable
 from typing import Any
 
@@ -182,15 +184,15 @@ def runs_client(monkeypatch):
 
     calls: list[tuple] = []
 
-    async def _spy_start_run(body, db):
+    async def _spy_start_run(body, db, *, user_id=None):
         calls.append((body, db))
         return uuid4()
 
     monkeypatch.setattr(run_service, "start_run", _spy_start_run)
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(
-        username="tester"
-    )
+    from tests.helpers import make_auth_user
+
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
 
     client = TestClient(app)
     client.cookies.set(CSRF_COOKIE_NAME, CSRF_TOKEN)
@@ -422,7 +424,8 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
             session.add(
                 Run(
                     id=parent_id,
-                    ticker="RETRYME",
+                    user_id=TEST_ADMIN_ID,
+                ticker="RETRYME",
                     asset_type="stock",
                     analysis_date=date(2026, 5, 19),
                     analysts=["market"],
@@ -447,7 +450,7 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
     # Spy on start_run so we can prove it WASN'T called when probe fails.
     calls: list[tuple] = []
 
-    async def _spy_start_run(body, db):
+    async def _spy_start_run(body, db, *, user_id=None):
         calls.append((body, db))
         return uuid.uuid4()
 
@@ -470,9 +473,9 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
             yield session
 
     app.dependency_overrides[get_session] = _override_session
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(
-        username="tester"
-    )
+    from tests.helpers import make_auth_user
+
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
 
     # Bypass CSRF (this endpoint is POST so the middleware would otherwise
     # demand the token — same dance test_runs_retry.py does).

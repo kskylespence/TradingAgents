@@ -16,6 +16,8 @@ to inject a synthetic user for the happy-path cases.
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 import importlib.util
 
 import pytest
@@ -48,7 +50,7 @@ def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from app.routers.catalog import get_current_user
     from app.schemas import AuthUser
 
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="tester")
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
     client = TestClient(app)
     try:
         yield client

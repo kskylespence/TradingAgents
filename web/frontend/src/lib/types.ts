@@ -75,7 +75,9 @@ export interface CatalogLanguage {
 // ----- Auth -----
 
 export interface AuthUser {
+  id: string;
   username: string;
+  role: "admin" | "user";
 }
 
 export interface LoginRequest {

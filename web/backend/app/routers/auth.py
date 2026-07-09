@@ -1,24 +1,10 @@
-"""Authentication endpoints: /auth/login, /auth/logout, /auth/me.
-
-Drops into the router registry via ``register(router)`` at module scope.
-``main.py`` mounts every registered router under ``/api`` — so the final
-public paths are ``/api/auth/login`` etc.
-
-Login flow:
-    1. Rate limiter checks IP — 401 if locked out.
-    2. Username compared against ``settings.admin_username``.
-    3. Password verified against ``settings.admin_password_hash`` (bcrypt).
-    4. Attempt persisted (success or failure) to ``login_attempts``.
-    5. On success: HttpOnly ``access_token`` cookie + non-HttpOnly
-       ``csrf_token`` cookie are set. Body is 204 No Content.
-
-Logout simply clears both cookies. ``/auth/me`` reuses
-``get_current_user`` and is the canonical "am I logged in" probe.
-"""
+"""Authentication endpoints: /auth/login, /auth/logout, /auth/me."""
 
 from __future__ import annotations
 
 import secrets
+
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,13 +20,12 @@ from ..config import get_settings
 from ..db import get_session
 from ..schemas import AuthUser, LoginRequest
 from ..services.rate_limit import login_rate_limiter
+from ..services.users import get_user_by_username
 from . import register
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# Generic-by-design: same response shape for "wrong username" and "wrong
-# password" so an attacker can't enumerate which one is incorrect.
 _INVALID_CREDS = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Invalid credentials",
@@ -50,17 +35,6 @@ _INVALID_CREDS = HTTPException(
 def _set_auth_cookies(
     response: Response, *, token: str, csrf_token: str, secure: bool, max_age: int
 ) -> None:
-    """Set both auth cookies on the response.
-
-    ``access_token``: HttpOnly so JS cannot read it (XSS-resistant).
-    ``csrf_token``: NOT HttpOnly so the SPA can echo it as a header for
-    the double-submit CSRF check on state-changing methods.
-
-    Both use ``SameSite=Lax``: blocks classic CSRF for top-level
-    navigation while still allowing standard same-site form posts. The
-    csrf_token cookie + ``X-CSRF-Token`` header double-submit pattern
-    covers sibling-subdomain edge cases SameSite alone misses.
-    """
     common = {
         "max_age": max_age,
         "secure": secure,
@@ -82,7 +56,6 @@ def _set_auth_cookies(
 
 
 def _clear_auth_cookies(response: Response, *, secure: bool) -> None:
-    """Wipe both cookies. Used by logout."""
     response.delete_cookie(
         COOKIE_ACCESS_TOKEN, path="/", secure=secure, samesite="lax"
     )
@@ -102,34 +75,28 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_session),
 ) -> Response:
-    """Authenticate the admin user and set the auth cookies.
-
-    Always records the attempt — success or failure — so the rate
-    limiter and audit history stay accurate.
-    """
-    # 1) Rate-limit check FIRST so brute-forcers don't get to consume
-    # bcrypt verification cycles (which are deliberately expensive).
+    """Authenticate a user and set auth cookies."""
     await login_rate_limiter.check(request, db)
 
-    settings = get_settings()
-
-    # 2) + 3) credential check — `verify_password` is constant-time and
-    # `secrets.compare_digest` on the username avoids timing differences
-    # between a wrong-length and same-length username miss.
-    username_ok = secrets.compare_digest(body.username, settings.admin_username)
-    password_ok = verify_password(body.password, settings.admin_password_hash)
-
-    # 4) record attempt regardless of outcome
-    succeeded = username_ok and password_ok
+    user = await get_user_by_username(db, body.username)
+    password_ok = user is not None and verify_password(
+        body.password, user.password_hash
+    )
+    succeeded = password_ok
     await login_rate_limiter.record(request, db, succeeded=succeeded)
 
     if not succeeded:
         raise _INVALID_CREDS
 
-    # 5) mint cookies
-    token = create_access_token(settings.admin_username)
+    assert user is not None
+    user_uuid = user.id if isinstance(user.id, UUID) else UUID(str(user.id))
+    token = create_access_token(
+        user_id=user_uuid,
+        username=user.username,
+        role=user.role,
+    )
     csrf_token = secrets.token_hex(32)
-    # JWT TTL can be negative in tests; cookie max_age can't, so clamp.
+    settings = get_settings()
     cookie_max_age = max(0, int(settings.jwt_ttl_seconds))
     _set_auth_cookies(
         response,
@@ -152,7 +119,6 @@ async def logout(
     response: Response,
     _user: AuthUser = Depends(get_current_user),
 ) -> Response:
-    """Clear both auth cookies. No body. Requires JWT (per plan)."""
     _clear_auth_cookies(response, secure=request.url.scheme == "https")
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
@@ -160,7 +126,6 @@ async def logout(
 
 @router.get("/me", response_model=AuthUser)
 async def me(user: AuthUser = Depends(get_current_user)) -> AuthUser:
-    """Return the currently-authenticated user, or 401."""
     return user
 
 

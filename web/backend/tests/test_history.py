@@ -22,6 +22,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
 # --------------------------------------------------------------------------- #
@@ -49,6 +51,10 @@ async def history_engine(tmp_path):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+    from passlib.hash import bcrypt
+
+    async with factory() as session:
+        await seed_admin_user(session, password_hash=bcrypt.hash("unused"))
     try:
         yield engine, factory
     finally:
@@ -81,6 +87,7 @@ async def seeded_runs(history_engine):
             # Coerce UUID to str — the SQLite driver does not bind UUID natively.
             row = Run(
                 id=str(run_id),
+                user_id=TEST_ADMIN_ID,
                 ticker=ticker,
                 asset_type="stock",
                 analysis_date=date(2026, 5, 1),
@@ -120,8 +127,10 @@ def client(history_engine, seeded_runs) -> Iterator[TestClient]:
         async with factory() as session:
             yield session
 
+    from tests.helpers import make_auth_user
+
     def _override_user() -> AuthUser:
-        return AuthUser(username="test")
+        return make_auth_user()
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_current_user] = _override_user
@@ -182,7 +191,8 @@ async def test_pages_are_stable_under_concurrent_inserts(
     async with factory() as session:
         row = Run(
             id=str(uuid.uuid4()),
-            ticker="TSLA",
+            user_id=TEST_ADMIN_ID,
+                ticker="TSLA",
             asset_type="stock",
             analysis_date=date(2026, 5, 1),
             analysts=["market"],

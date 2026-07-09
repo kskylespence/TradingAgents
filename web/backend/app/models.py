@@ -44,12 +44,35 @@ UuidType = String(36).with_variant(UUID(as_uuid=True), "postgresql")
 InetType = String(45).with_variant(INET(), "postgresql")
 
 
+class User(Base):
+    """Application user account (admin or regular user)."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UuidType, primary_key=True, default=uuid.uuid4)
+    username: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+# Fixed id for the env-bootstrapped admin user (see migration 0003).
+BOOTSTRAP_ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
 class Run(Base):
     """One row per analysis run."""
 
     __tablename__ = "runs"
 
     id: Mapped[uuid.UUID] = mapped_column(UuidType, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UuidType,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     ticker: Mapped[str] = mapped_column(String(32), nullable=False)
     asset_type: Mapped[str] = mapped_column(String(16), nullable=False)
     analysis_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -87,6 +110,7 @@ class Run(Base):
 
     __table_args__ = (
         Index("runs_created_at_idx", created_at.desc()),
+        Index("runs_user_created_idx", "user_id", created_at.desc()),
         Index("runs_ticker_idx", "ticker", created_at.desc()),
         # Partial index on Postgres; we attach a regular index on SQLite for tests.
         Index(

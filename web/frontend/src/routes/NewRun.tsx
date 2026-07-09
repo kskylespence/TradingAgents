@@ -42,6 +42,7 @@ import {
 } from "@/hooks/useCatalog";
 import { useHealth } from "@/hooks/useHealth";
 import { useUserDefaults } from "@/hooks/useUserDefaults";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { api, ApiError } from "@/lib/api";
 import { inferAssetType } from "@/lib/assetType";
 import type {
@@ -104,6 +105,7 @@ interface ConflictDetail {
 export default function NewRun() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const isAdmin = useIsAdmin();
 
   // --- Form state --------------------------------------------------------- //
   const [ticker, setTicker] = useState("");
@@ -153,7 +155,7 @@ export default function NewRun() {
   const languagesQuery = useLanguages();
   const quickModelsQuery = useModels(provider || null, "quick");
   const deepModelsQuery = useModels(provider || null, "deep");
-  const defaultsQuery = useUserDefaults();
+  const defaultsQuery = useUserDefaults(isAdmin);
   // Polls /api/health every 30s. The OllamaUpstreamAlert component
   // below renders an inline warning when provider=ollama and the
   // upstream probe says "down", so the user gets the failure signal
@@ -366,6 +368,7 @@ export default function NewRun() {
     if (selectedAnalysts.size === 0) {
       return "Select at least one analyst.";
     }
+    if (!isAdmin) return null;
     if (!provider) return "Pick an LLM provider.";
     if (!effectiveQuickModel) {
       return quickAllowsCustom
@@ -385,20 +388,19 @@ export default function NewRun() {
     const body: RunRequest = {
       ticker: ticker.trim(),
       analysis_date: analysisDate,
-      output_language: language,
-      // Preserve catalog order rather than insertion order.
+      output_language: isAdmin ? language : "English",
       analysts: (analystsQuery.data ?? [])
         .map((a) => a.key)
         .filter((k) => selectedAnalysts.has(k)),
       research_depth: researchDepth,
-      llm_provider: provider,
-      quick_think_llm: effectiveQuickModel,
-      deep_think_llm: effectiveDeepModel,
-      enable_checkpoint: enableCheckpoint,
+      llm_provider: isAdmin ? provider : "ollama",
+      quick_think_llm: isAdmin ? effectiveQuickModel : "glm-5.2",
+      deep_think_llm: isAdmin ? effectiveDeepModel : "glm-5.2",
+      enable_checkpoint: isAdmin ? enableCheckpoint : true,
     };
-    if (provider === "openai") body.openai_reasoning_effort = openaiEffort;
-    if (provider === "anthropic") body.anthropic_effort = anthropicEffort;
-    if (provider === "google") body.google_thinking_level = googleLevel;
+    if (isAdmin && provider === "openai") body.openai_reasoning_effort = openaiEffort;
+    if (isAdmin && provider === "anthropic") body.anthropic_effort = anthropicEffort;
+    if (isAdmin && provider === "google") body.google_thinking_level = googleLevel;
     return body;
   }
 
@@ -425,13 +427,12 @@ export default function NewRun() {
 
   return (
     <div className="container max-w-3xl py-8">
-      <Card>
+      <Card className="border-emerald-900/40 bg-card/80">
         <CardHeader>
-          <CardTitle>New analysis</CardTitle>
+          <CardTitle className="font-mono tracking-tight">New analysis</CardTitle>
           <CardDescription>
-            Submit a multi-agent run. Backed by{" "}
-            <code className="font-mono text-xs">/api/catalog/*</code>; posts to{" "}
-            <code className="font-mono text-xs">/api/runs</code>.
+            Submit a ticker for multi-agent research. Configure models in Settings
+            {isAdmin ? "" : " (admin only)"}.
           </CardDescription>
         </CardHeader>
         <Form onSubmit={onSubmit} noValidate>
@@ -537,6 +538,8 @@ export default function NewRun() {
               </FormControl>
             </FormItem>
 
+            {isAdmin ? (
+              <>
             {/* Ollama upstream warning — see OllamaUpstreamAlert for
                 the visibility logic. Extracted so the alert can be
                 unit-tested without mounting the full form. Renders
@@ -735,6 +738,8 @@ export default function NewRun() {
                 </label>
               </FormControl>
             </FormItem>
+              </>
+            ) : null}
 
             <FormMessage>{validationError}</FormMessage>
           </CardContent>

@@ -17,6 +17,8 @@ Strategy:
 
 from __future__ import annotations
 
+from tests.helpers import make_auth_user
+
 from collections.abc import AsyncIterator
 
 import pytest
@@ -107,7 +109,7 @@ def settings_client(monkeypatch) -> AsyncIterator[TestClient]:
                 raise
 
     app.dependency_overrides[get_session] = _override_session
-    app.dependency_overrides[get_current_user] = lambda: AuthUser(username="tester")
+    app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
 
     client = TestClient(app)
     # Pre-set the CSRF cookie so PUT/DELETE pass the CSRFMiddleware.

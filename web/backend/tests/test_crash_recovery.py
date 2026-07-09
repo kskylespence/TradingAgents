@@ -26,6 +26,8 @@ Covers the contract spelled out in
 
 from __future__ import annotations
 
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 import uuid
 from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
@@ -104,6 +106,7 @@ async def _seed_run(
         session.add(
             Run(
                 id=str(run_id),
+                user_id=TEST_ADMIN_ID,
                 ticker=ticker,
                 asset_type="stock",
                 analysis_date=analysis_date,

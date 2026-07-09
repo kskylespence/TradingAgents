@@ -17,6 +17,8 @@ Covers:
 
 from __future__ import annotations
 
+from tests.helpers import TEST_ADMIN_ID, seed_admin_user
+
 import asyncio
 import os
 import time
@@ -139,6 +141,7 @@ async def _seed_runs(factory, *, recent_days: int, old_days: int) -> None:
         session.add(
             Run(
                 id=str(uuid.uuid4()),
+                user_id=TEST_ADMIN_ID,
                 ticker="SPY",
                 asset_type="stock",
                 analysis_date=date(2026, 5, 15),
@@ -156,6 +159,7 @@ async def _seed_runs(factory, *, recent_days: int, old_days: int) -> None:
         session.add(
             Run(
                 id=str(uuid.uuid4()),
+                user_id=TEST_ADMIN_ID,
                 ticker="AAPL",
                 asset_type="stock",
                 analysis_date=date(2025, 12, 1),
