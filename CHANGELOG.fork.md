@@ -35,6 +35,10 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **Migration 0003 (Postgres).** Cast bootstrap admin UUID literals in raw SQL so
+  `alembic upgrade head` succeeds on PostgreSQL (asyncpg rejected varchar binds
+  against UUID columns).
+
 - **CI (upstream gate).** Register the `asyncio` pytest marker, skip
   `test_run_service_error_format` when FastAPI is not installed, re-export
   `detect_asset_type` from `cli.utils`, classify bare `BTCUSD`/`ETHUSD` as

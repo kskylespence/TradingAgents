@@ -53,19 +53,35 @@ def upgrade() -> None:
     )
 
     # Placeholder hash — bootstrap hook overwrites on startup.
-    op.execute(
-        sa.text(
-            "INSERT INTO users (id, username, password_hash, role) "
-            "VALUES (:id, 'bootstrap-admin', :hash, 'admin')"
-        ).bindparams(
-            id=BOOTSTRAP_ADMIN_ID,
-            hash="$2b$12$placeholderplaceholderplaceholderplaceholderplaceholderp",
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            sa.text(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES (CAST(:id AS uuid), 'bootstrap-admin', :hash, 'admin')"
+            ).bindparams(
+                id=BOOTSTRAP_ADMIN_ID,
+                hash="$2b$12$placeholderplaceholderplaceholderplaceholderplaceholderp",
+            )
         )
-    )
-
-    op.execute(
-        sa.text("UPDATE runs SET user_id = :uid").bindparams(uid=BOOTSTRAP_ADMIN_ID)
-    )
+        op.execute(
+            sa.text("UPDATE runs SET user_id = CAST(:uid AS uuid)").bindparams(
+                uid=BOOTSTRAP_ADMIN_ID
+            )
+        )
+    else:
+        op.execute(
+            sa.text(
+                "INSERT INTO users (id, username, password_hash, role) "
+                "VALUES (:id, 'bootstrap-admin', :hash, 'admin')"
+            ).bindparams(
+                id=BOOTSTRAP_ADMIN_ID,
+                hash="$2b$12$placeholderplaceholderplaceholderplaceholderplaceholderp",
+            )
+        )
+        op.execute(
+            sa.text("UPDATE runs SET user_id = :uid").bindparams(uid=BOOTSTRAP_ADMIN_ID)
+        )
 
     op.alter_column("runs", "user_id", nullable=False)
 
