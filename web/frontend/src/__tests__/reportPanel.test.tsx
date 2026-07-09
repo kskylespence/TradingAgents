@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { REPORT_SECTION_ORDER, ReportPanel } from "@/components/ReportPanel";
 
 vi.mock("react-markdown", () => ({
-  default: ({ children }: { children: string }) => <div>{children}</div>,
+  default: ({ children }: { children: string }) => children,
 }));
 vi.mock("remark-gfm", () => ({ default: () => {} }));
 
