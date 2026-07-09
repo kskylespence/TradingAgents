@@ -17,7 +17,6 @@ from typing import Any
 import httpx
 import pytest
 
-
 # --------------------------------------------------------------------------- #
 # Helpers (mirror test_ollama_models_service.py)                              #
 # --------------------------------------------------------------------------- #

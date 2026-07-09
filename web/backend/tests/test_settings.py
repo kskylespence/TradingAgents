@@ -20,15 +20,14 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
+from app import crypto
+from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from app.models import ApiKey
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app import crypto
-from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-from app.models import ApiKey
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
-
 
 # A static CSRF token for state-changing requests; cookie and header must match.
 CSRF_TOKEN = "test-csrf-token-1234567890"
@@ -88,8 +87,8 @@ def settings_client(monkeypatch) -> AsyncIterator[TestClient]:
         connect_args={"check_same_thread": False},
     )
 
-    from app.db import Base
     from app import models  # noqa: F401 — register tables on Base.metadata
+    from app.db import Base
 
     async def _create_schema() -> None:
         async with engine.begin() as conn:

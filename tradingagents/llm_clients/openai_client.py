@@ -4,9 +4,8 @@ import logging
 import os
 import re
 import threading
-import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -64,10 +63,10 @@ class NormalizedChatOpenAI(ChatOpenAI):
     # Pydantic v2 / langchain-openai treats these as private attributes; they
     # are NOT validated and NOT serialized. We use ``model_config`` already
     # inherited from ChatOpenAI which allows extra="allow".
-    _heartbeat_observer: Optional[Any] = None
-    _heartbeat_agent_hint: Optional[str] = None
+    _heartbeat_observer: Any | None = None
+    _heartbeat_agent_hint: str | None = None
 
-    def set_observer(self, observer: Optional[Any]) -> None:
+    def set_observer(self, observer: Any | None) -> None:
         """Attach (or detach) the run observer for heartbeat emission.
 
         The observer must expose ``emit_llm_call_pending(payload: dict)``
@@ -79,7 +78,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
         """
         object.__setattr__(self, "_heartbeat_observer", observer)
 
-    def set_agent_hint(self, agent_hint: Optional[str]) -> None:
+    def set_agent_hint(self, agent_hint: str | None) -> None:
         """Tag the next call(s) with an agent label for heartbeat events.
 
         Setup wraps every analyst node with a helper that calls this

@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
-
 
 def _reload_client():
     import tradingagents.llm_clients.openai_client as mod

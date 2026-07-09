@@ -49,7 +49,6 @@ from app.db import get_session_factory
 from app.models import RunEvent as RunEventModel
 from app.schemas import RunEvent as RunEventSchema
 
-
 log = logging.getLogger(__name__)
 
 

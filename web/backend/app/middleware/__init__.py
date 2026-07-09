@@ -33,13 +33,13 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import Callable, List
+from collections.abc import Callable
 
 from fastapi import FastAPI
 
 Installer = Callable[[FastAPI], None]
 
-INSTALLERS: List[Installer] = []
+INSTALLERS: list[Installer] = []
 
 
 def register(installer: Installer) -> None:

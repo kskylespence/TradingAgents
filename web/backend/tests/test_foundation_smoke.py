@@ -7,7 +7,6 @@ end-to-end tests live alongside the routers/services they exercise.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import date, datetime, timezone
 
@@ -51,8 +50,8 @@ def test_bootstrap_health_alias() -> None:
 
 def test_db_models_import_and_register_on_metadata() -> None:
     """Every ORM table is registered on Base.metadata."""
-    from app.db import Base
     from app import models  # noqa: F401
+    from app.db import Base
 
     expected = {"runs", "run_events", "api_keys", "user_defaults", "login_attempts"}
     found = set(Base.metadata.tables.keys())
@@ -204,9 +203,8 @@ def test_crypto_round_trip() -> None:
 
 def test_router_registry_starts_empty_and_accepts_registrations() -> None:
     """Downstream agents will call register() to plug their routers in."""
-    from fastapi import APIRouter
-
     from app.routers import ROUTERS, register
+    from fastapi import APIRouter
 
     starting = len(ROUTERS)
     r = APIRouter(prefix="/foo")
@@ -220,9 +218,8 @@ def test_router_registry_starts_empty_and_accepts_registrations() -> None:
 
 def test_settings_requires_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Settings must refuse to construct when JWT_SECRET is unset."""
-    from pydantic import ValidationError
-
     from app.config import Settings, get_settings
+    from pydantic import ValidationError
 
     monkeypatch.delenv("JWT_SECRET", raising=False)
     get_settings.cache_clear()
@@ -232,9 +229,8 @@ def test_settings_requires_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_requires_fernet_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Settings must refuse to construct when FERNET_KEY is unset."""
-    from pydantic import ValidationError
-
     from app.config import Settings, get_settings
+    from pydantic import ValidationError
 
     monkeypatch.delenv("FERNET_KEY", raising=False)
     get_settings.cache_clear()
@@ -244,9 +240,8 @@ def test_settings_requires_fernet_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_requires_admin_password_hash(monkeypatch: pytest.MonkeyPatch) -> None:
     """Settings must refuse to construct when ADMIN_PASSWORD_HASH is unset."""
-    from pydantic import ValidationError
-
     from app.config import Settings, get_settings
+    from pydantic import ValidationError
 
     monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
     monkeypatch.delenv("ADMIN_PASSWORD_HASH_B64", raising=False)
@@ -279,9 +274,8 @@ def test_settings_rejects_malformed_admin_password_hash_b64(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invalid base64 in ADMIN_PASSWORD_HASH_B64 must fail loudly, not silently."""
-    from pydantic import ValidationError
-
     from app.config import Settings, get_settings
+    from pydantic import ValidationError
 
     monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
     monkeypatch.setenv("ADMIN_PASSWORD_HASH_B64", "this is not valid base64!!!")

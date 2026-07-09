@@ -40,7 +40,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from typing import Optional
 
 from fastapi import APIRouter
 from sqlalchemy import text
@@ -67,7 +66,7 @@ async def _check_db() -> None:
         await conn.execute(text("SELECT 1"))
 
 
-def _disk_free_mb() -> Optional[int]:
+def _disk_free_mb() -> int | None:
     """Free space on `settings.data_dir` in whole MB, or None if missing."""
     data_dir = get_settings().data_dir
     if not data_dir.exists():
@@ -80,7 +79,7 @@ def _disk_free_mb() -> Optional[int]:
     return int(usage.free // (1024 * 1024))
 
 
-def _active_run_id() -> Optional[str]:
+def _active_run_id() -> str | None:
     """Best-effort lookup of the currently-active run id.
 
     `app.services.run_service` lands in a later wave. Until then we
@@ -104,7 +103,7 @@ def _active_run_id() -> Optional[str]:
         return None
 
 
-async def _ollama_probe() -> Optional[dict]:
+async def _ollama_probe() -> dict | None:
     """Best-effort upstream Ollama reachability check.
 
     Returns ``None`` when the active provider isn't ollama (so the

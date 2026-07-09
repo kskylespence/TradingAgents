@@ -35,11 +35,9 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import catalog as catalog_svc
-from app import crypto
+from app import catalog as catalog_svc, crypto
 from app.db import get_session
-from app.models import ApiKey as ApiKeyModel
-from app.models import UserDefaults as UserDefaultsModel
+from app.models import ApiKey as ApiKeyModel, UserDefaults as UserDefaultsModel
 from app.schemas import ApiKeyStatus, UserDefaults
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 

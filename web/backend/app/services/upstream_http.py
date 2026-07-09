@@ -71,10 +71,9 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Optional
 
 import httpx
-from circuitbreaker import CircuitBreaker, CircuitBreakerError
+from circuitbreaker import CircuitBreaker
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -131,7 +130,7 @@ _RECOVERY_TIMEOUT_SECONDS = 30
 # ``AsyncClient`` instance, the breaker's lock) are bound to whatever
 # event loop is current when called — matches the lazy-lock pattern
 # documented in ``web/backend/CLAUDE.md``.
-_client: Optional[httpx.AsyncClient] = None
+_client: httpx.AsyncClient | None = None
 _breaker = CircuitBreaker(
     failure_threshold=_FAILURE_THRESHOLD,
     recovery_timeout=_RECOVERY_TIMEOUT_SECONDS,
@@ -207,7 +206,7 @@ def _is_retryable_response(resp: httpx.Response) -> bool:
     return resp.status_code == 429 or 500 <= resp.status_code < 600
 
 
-def _retry_after_seconds(resp: httpx.Response) -> Optional[float]:
+def _retry_after_seconds(resp: httpx.Response) -> float | None:
     """Parse the ``Retry-After`` header into a seconds-from-now float.
 
     Per RFC 7231 §7.1.3 the header may be either:
@@ -268,8 +267,8 @@ async def request(
     method: str,
     url: str,
     *,
-    headers: Optional[dict] = None,
-    json_body: Optional[dict] = None,
+    headers: dict | None = None,
+    json_body: dict | None = None,
     max_attempts: int = 3,
     max_total_seconds: float = 25.0,
 ) -> httpx.Response:

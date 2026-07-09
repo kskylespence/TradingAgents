@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
-from typing import AsyncIterator
 
 import pytest
 from sqlalchemy.ext.asyncio import (
@@ -30,7 +30,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -238,9 +237,9 @@ async def test_terminal_event_ends_subscription(seeded_run) -> None:
 async def test_backpressure_drops_live_frames_but_db_persists(seeded_run) -> None:
     """Push 250 events with the queue cap at 200; verify all 250 land in DB
     so a fresh subscriber sees all 250 via replay."""
-    from app.services import event_bus
     from app.models import RunEvent as RunEventModel
-    from sqlalchemy import select, func
+    from app.services import event_bus
+    from sqlalchemy import func, select
 
     run_id = seeded_run
 

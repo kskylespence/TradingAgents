@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -88,8 +87,8 @@ class Settings(BaseSettings):
     retention_days: int = Field(default=90)
 
     # --- Coolify magic vars (used for CSP construction in later tasks) ---
-    coolify_fqdn: Optional[str] = None
-    coolify_url: Optional[str] = None
+    coolify_fqdn: str | None = None
+    coolify_url: str | None = None
 
     # --- Static assets (the React build) ---
     static_dir: Path = Field(
@@ -105,7 +104,7 @@ class Settings(BaseSettings):
         return Path(str(v))
 
     @model_validator(mode="after")
-    def _resolve_admin_password_hash(self) -> "Settings":
+    def _resolve_admin_password_hash(self) -> Settings:
         """Promote ADMIN_PASSWORD_HASH_B64 to admin_password_hash if needed.
 
         Workaround for env-var platforms (notably Coolify) that perform

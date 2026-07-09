@@ -36,13 +36,13 @@ predicate stub.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
-
 from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from fastapi.testclient import TestClient
 
 CSRF_TOKEN = "test-csrf-token-preflight"
 
@@ -377,17 +377,17 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
     import uuid
     from datetime import date, datetime, timezone
 
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from app import db as db_mod
-    from app import models  # noqa: F401 — register tables on Base.metadata
+    from app import (
+        db as db_mod,
+        models,  # noqa: F401 — register tables on Base.metadata
+    )
     from app.auth import get_current_user
     from app.db import Base, get_session
     from app.main import app
     from app.models import Run
     from app.schemas import AuthUser
-    from app.services import event_bus as eb_mod
-    from app.services import run_service
+    from app.services import event_bus as eb_mod, run_service
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
     monkeypatch.setenv("FAKE_LLM", "1")

@@ -13,15 +13,14 @@ that the CSRF check doesn't accidentally fire on GET /api/health.
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.middleware.csrf import (
     CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,
-    CSRFMiddleware,
     EXEMPT_PATHS,
+    CSRFMiddleware,
 )
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -172,7 +171,7 @@ def test_login_endpoint_is_exempt(isolated_client: TestClient) -> None:
 
 def test_login_is_the_only_exempt_path() -> None:
     """Defensive check on the exemption set — keep it tight on purpose."""
-    assert EXEMPT_PATHS == frozenset({"/api/auth/login"})
+    assert frozenset({"/api/auth/login"}) == EXEMPT_PATHS
 
 
 # --- Smoke against the real production app -------------------------------- #

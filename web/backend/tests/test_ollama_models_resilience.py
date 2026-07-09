@@ -28,7 +28,6 @@ from typing import Any
 import httpx
 import pytest
 
-
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
 # --------------------------------------------------------------------------- #
@@ -215,10 +214,10 @@ async def test_list_ollama_models_serves_stale_while_revalidating(
     """
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.test/v1")
 
-    from app.services import ollama_models, upstream_http
-
     # Seed the cache with a stale (>5 min old) entry.
     import time
+
+    from app.services import ollama_models, upstream_http
     base_url = "https://ollama.test/v1"
     ollama_models._cache[base_url] = (
         time.monotonic() - (ollama_models._TTL_SECONDS + 60),
@@ -280,10 +279,10 @@ async def test_list_ollama_models_circuit_open_serves_cache(monkeypatch) -> None
     """
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.test/v1")
 
+    import time
+
     from app.services import ollama_models, upstream_http
     from circuitbreaker import CircuitBreakerError
-
-    import time
     base_url = "https://ollama.test/v1"
     ollama_models._cache[base_url] = (
         time.monotonic() - (ollama_models._TTL_SECONDS + 60),

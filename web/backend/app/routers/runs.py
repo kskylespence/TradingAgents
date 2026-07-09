@@ -36,8 +36,8 @@ import io
 import json
 import logging
 import zipfile
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -45,7 +45,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from . import register
 from .. import catalog as catalog_svc
 from ..auth import get_current_user
 from ..db import get_session
@@ -59,6 +58,7 @@ from ..schemas import (
     UnhealthyModel,
 )
 from ..services import event_bus, run_service
+from . import register
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ async def _suggested_alternatives() -> list[str]:
     available = set(await list_ollama_models())
     unhealthy = set(cached_probe_unhealthy_models())
     candidates = sorted(
-        (mid for mid in CURATED_2026_05 if mid in available and mid not in unhealthy)
+        mid for mid in CURATED_2026_05 if mid in available and mid not in unhealthy
     )
 
     # Pin the GLM headline model to the front when it survived the filter;
@@ -140,7 +140,7 @@ async def _validate_and_probe(body: RunRequest) -> None:
             ),
         )
 
-    for field_name, value, mode in (
+    for _field_name, value, mode in (
         ("quick_think_llm", body.quick_think_llm, "quick"),
         ("deep_think_llm", body.deep_think_llm, "deep"),
     ):
@@ -302,7 +302,7 @@ async def stream_events(
     return EventSourceResponse(_gen(), ping=15)
 
 
-def _parse_last_event_id(raw: Optional[str]) -> Optional[int]:
+def _parse_last_event_id(raw: str | None) -> int | None:
     """Parse the ``Last-Event-ID`` header into an int, or None on garbage.
 
     Per the SSE spec, the client echoes back whatever we sent as ``id``;
@@ -519,7 +519,7 @@ def _to_detail(row: Run) -> RunDetail:
         # both SQLite (tests) and Postgres (prod, which preserves it).
         return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
-    elapsed: Optional[float] = None
+    elapsed: float | None = None
     if row.started_at is not None:
         end = row.finished_at or datetime.now(timezone.utc)
         elapsed = max(0.0, (_aware(end) - _aware(row.started_at)).total_seconds())

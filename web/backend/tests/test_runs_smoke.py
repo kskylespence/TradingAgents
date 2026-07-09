@@ -16,16 +16,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import date
-from typing import AsyncIterator, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -98,7 +96,6 @@ def client(runs_engine, patched_session_factory) -> Iterator[TestClient]:
     from app.auth import get_current_user
     from app.db import get_session
     from app.main import app
-    from app.middleware.csrf import CSRFMiddleware
     from app.schemas import AuthUser
     from app.services import run_service
 
@@ -228,7 +225,7 @@ def _parse_sse_events(text: str) -> list[dict]:
     normalised = text.replace("\r\n", "\n")
     for frame in normalised.split("\n\n"):
         data_line = next(
-            (l for l in frame.splitlines() if l.startswith("data:")), None
+            (line for line in frame.splitlines() if line.startswith("data:")), None
         )
         if not data_line:
             continue
@@ -415,7 +412,7 @@ def test_resume_happy_path_returns_new_run_id(
     ``web/frontend/src/routes/RunView.tsx::resumeMutation``).
     """
     import uuid as _uuid
-    from datetime import date, datetime, timezone
+    from datetime import datetime, timezone
 
     from app.config import get_settings
     from app.models import Run

@@ -9,16 +9,14 @@ URL via env vars.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 # Make `app.*` importable when alembic is run from web/backend/.
 _HERE = Path(__file__).resolve().parent
@@ -26,9 +24,9 @@ _BACKEND_ROOT = _HERE.parent
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
+from app import models  # noqa: F401,E402  ensures models are registered on Base.metadata
 from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
-from app import models  # noqa: F401,E402  ensures models are registered on Base.metadata
 
 # Alembic Config object, providing access to alembic.ini values.
 config = context.config

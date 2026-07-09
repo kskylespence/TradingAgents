@@ -12,19 +12,21 @@ configures logging and disposes the DB engine on shutdown.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import (
+    lifespan_hooks as lifespan_registry,
+    middleware as middleware_registry,
+    routers as routers_registry,
+)
 from .config import get_settings
 from .db import dispose_engine
 from .logging_config import configure_logging
-from . import routers as routers_registry
-from . import middleware as middleware_registry
-from . import lifespan_hooks as lifespan_registry
 
 # --- Router auto-discovery ---
 # `app.routers` auto-imports every submodule on package load (see

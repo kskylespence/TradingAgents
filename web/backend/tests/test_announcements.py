@@ -28,11 +28,11 @@ def _bypass_auth():
     it so we can test the proxy behavior in isolation.
     """
     from app.main import app
-    from app.schemas import AuthUser
 
     # Import the exact callable the router depends on so the override
     # key matches FastAPI's dependency identity check.
     from app.routers.announcements import get_current_user
+    from app.schemas import AuthUser
 
     app.dependency_overrides[get_current_user] = lambda: AuthUser(username="test-user")
     yield
@@ -106,9 +106,8 @@ def test_endpoint_returns_empty_on_timeout() -> None:
     with patch(
         "httpx.AsyncClient.get",
         new=AsyncMock(side_effect=httpx.TimeoutException("slow upstream")),
-    ):
-        with TestClient(app) as client:
-            resp = client.get("/api/announcements/")
+    ), TestClient(app) as client:
+        resp = client.get("/api/announcements/")
 
     assert resp.status_code == 200
     assert resp.json() == []
@@ -148,10 +147,9 @@ def test_second_call_within_ttl_hits_cache() -> None:
 
     mock_get = AsyncMock(return_value=_make_response(json_body=SAMPLE_PAYLOAD))
 
-    with patch("httpx.AsyncClient.get", new=mock_get):
-        with TestClient(app) as client:
-            r1 = client.get("/api/announcements/")
-            r2 = client.get("/api/announcements/")
+    with patch("httpx.AsyncClient.get", new=mock_get), TestClient(app) as client:
+        r1 = client.get("/api/announcements/")
+        r2 = client.get("/api/announcements/")
 
     assert r1.status_code == 200
     assert r2.status_code == 200
@@ -163,8 +161,8 @@ def test_second_call_within_ttl_hits_cache() -> None:
 
 def test_cache_expires_after_ttl(monkeypatch) -> None:
     """Once TTL elapses, the next call re-fetches from upstream."""
-    from app.services import announcements as svc
     from app.main import app
+    from app.services import announcements as svc
 
     mock_get = AsyncMock(return_value=_make_response(json_body=SAMPLE_PAYLOAD))
 
@@ -176,10 +174,9 @@ def test_cache_expires_after_ttl(monkeypatch) -> None:
 
     monkeypatch.setattr(svc, "_now", _now)
 
-    with patch("httpx.AsyncClient.get", new=mock_get):
-        with TestClient(app) as client:
-            client.get("/api/announcements/")
-            fake_now["t"] += svc.CACHE_TTL_SECONDS + 1.0
-            client.get("/api/announcements/")
+    with patch("httpx.AsyncClient.get", new=mock_get), TestClient(app) as client:
+        client.get("/api/announcements/")
+        fake_now["t"] += svc.CACHE_TTL_SECONDS + 1.0
+        client.get("/api/announcements/")
 
     assert mock_get.call_count == 2

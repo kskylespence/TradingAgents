@@ -35,8 +35,8 @@ exit (not left as the empty string), so ``os.getenv(name)`` returns
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Iterator, Mapping
 
 
 @contextmanager

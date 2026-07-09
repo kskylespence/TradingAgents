@@ -26,14 +26,12 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Deque, Dict
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import LoginAttempt
-
 
 # Defaults from the plan: 5 attempts per 5 minutes.
 DEFAULT_MAX_ATTEMPTS = 5
@@ -70,7 +68,7 @@ def client_ip(request: Request) -> str:
 class _Bucket:
     """Per-IP rolling window of failed-attempt timestamps."""
 
-    timestamps: Deque[datetime] = field(default_factory=deque)
+    timestamps: deque[datetime] = field(default_factory=deque)
     hydrated: bool = False
 
 
@@ -90,7 +88,7 @@ class LoginRateLimiter:
     ) -> None:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
-        self._buckets: Dict[str, _Bucket] = {}
+        self._buckets: dict[str, _Bucket] = {}
         # Lazy init so the lock binds to whichever loop is actually
         # running when first awaited (same reason as event_bus). The
         # singleton is constructed at module import time, before uvicorn
@@ -180,7 +178,7 @@ class LoginRateLimiter:
         rows = result.all()
         # Walk forward; clear the running list on any success (mirrors the
         # in-memory rule), append on each failure.
-        running: Deque[datetime] = deque()
+        running: deque[datetime] = deque()
         for attempted_at, succeeded in rows:
             ts = self._coerce_aware(attempted_at)
             if succeeded:

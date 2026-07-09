@@ -22,13 +22,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from app.schemas import Announcement
-
 
 # Hardcoded upstream URL — the CLI uses cli/config.py's
 # `announcements_url`, but the backend has no equivalent config knob and
@@ -62,7 +61,7 @@ class _CacheEntry(TypedDict):
 
 
 # Module-level cache + lock. Tests reset via _reset_cache_for_tests().
-_cache: Optional[_CacheEntry] = None
+_cache: _CacheEntry | None = None
 _cache_lock: asyncio.Lock = asyncio.Lock()
 
 
@@ -71,7 +70,7 @@ def _now() -> float:
     return time.monotonic()
 
 
-def _cache_is_fresh(entry: Optional[_CacheEntry]) -> bool:
+def _cache_is_fresh(entry: _CacheEntry | None) -> bool:
     if entry is None:
         return False
     return (_now() - entry["fetched_at"]) < CACHE_TTL_SECONDS

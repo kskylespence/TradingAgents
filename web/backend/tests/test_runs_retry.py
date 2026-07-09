@@ -23,13 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Iterator
 from datetime import date, datetime, timezone
-from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures (mirrors test_runs_smoke.py)                                       #

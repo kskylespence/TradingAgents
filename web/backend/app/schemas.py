@@ -9,7 +9,7 @@ RunEvent, `kind` for the message sub-classification).
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -63,13 +63,13 @@ class _FrontendModel(BaseModel):
 class ProviderRegion(_FrontendModel):
     key: str
     label: str
-    default_base_url: Optional[str] = None
+    default_base_url: str | None = None
 
 
 class CatalogProvider(_FrontendModel):
     key: str
     label: str
-    regions: Optional[list[ProviderRegion]] = None
+    regions: list[ProviderRegion] | None = None
     requires_api_key: bool
     api_key_env: str
 
@@ -84,7 +84,7 @@ class CatalogModel(_FrontendModel):
     # de-emphasised it, often because of tracked reliability issues. The
     # field is omitted entirely for non-Ollama providers because we have
     # no equivalent quality signal there.
-    curated: Optional[bool] = None
+    curated: bool | None = None
 
 
 class CatalogAnalyst(_FrontendModel):
@@ -119,25 +119,25 @@ class LoginRequest(_FrontendModel):
 class ApiKeyStatus(_FrontendModel):
     provider_env: str
     configured: bool
-    last_updated: Optional[datetime] = None
+    last_updated: datetime | None = None
 
 
 class ThinkingConfig(_FrontendModel):
-    google_thinking_level: Optional[GoogleThinkingLevel] = None
-    openai_reasoning_effort: Optional[OpenAIReasoningEffort] = None
-    anthropic_effort: Optional[AnthropicEffort] = None
+    google_thinking_level: GoogleThinkingLevel | None = None
+    openai_reasoning_effort: OpenAIReasoningEffort | None = None
+    anthropic_effort: AnthropicEffort | None = None
 
 
 class UserDefaults(_FrontendModel):
-    llm_provider: Optional[str] = "ollama"
-    quick_think_llm: Optional[str] = "glm-5.2"
-    deep_think_llm: Optional[str] = "glm-5.2"
-    research_depth: Optional[ResearchDepth] = 1
-    analysts: Optional[list[AnalystKey]] = ["market", "social"]
-    output_language: Optional[str] = None
-    thinking_config: Optional[ThinkingConfig] = None
+    llm_provider: str | None = "ollama"
+    quick_think_llm: str | None = "glm-5.2"
+    deep_think_llm: str | None = "glm-5.2"
+    research_depth: ResearchDepth | None = 1
+    analysts: list[AnalystKey] | None = ["market", "social"]
+    output_language: str | None = None
+    thinking_config: ThinkingConfig | None = None
     enable_checkpoint: bool = True
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -156,9 +156,9 @@ class RunRequest(_FrontendModel):
     llm_provider: str
     quick_think_llm: str
     deep_think_llm: str
-    google_thinking_level: Optional[GoogleThinkingLevel] = None
-    openai_reasoning_effort: Optional[OpenAIReasoningEffort] = None
-    anthropic_effort: Optional[AnthropicEffort] = None
+    google_thinking_level: GoogleThinkingLevel | None = None
+    openai_reasoning_effort: OpenAIReasoningEffort | None = None
+    anthropic_effort: AnthropicEffort | None = None
     enable_checkpoint: bool = True
 
 
@@ -168,7 +168,7 @@ class RunStats(_FrontendModel):
     tokens_in: int = 0
     tokens_out: int = 0
     elapsed_seconds: float = 0.0
-    analyst_wall_times: Optional[dict[str, float]] = None
+    analyst_wall_times: dict[str, float] | None = None
 
 
 class RunSummary(_FrontendModel):
@@ -177,32 +177,32 @@ class RunSummary(_FrontendModel):
     asset_type: AssetType
     analysis_date: date
     status: RunStatus
-    rating: Optional[Rating] = None
+    rating: Rating | None = None
     llm_provider: str
     research_depth: ResearchDepth
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     created_at: datetime
-    elapsed_seconds: Optional[float] = None
+    elapsed_seconds: float | None = None
 
 
 class RunDetail(RunSummary):
     analysts: list[AnalystKey]
     quick_think_llm: str
     deep_think_llm: str
-    thinking_config: Optional[ThinkingConfig] = None
+    thinking_config: ThinkingConfig | None = None
     output_language: str
     checkpoint_enabled: bool
-    decision_full: Optional[str] = None
-    report_dir: Optional[str] = None
-    error_message: Optional[str] = None
-    stats: Optional[RunStats] = None
-    resumable: Optional[bool] = None
+    decision_full: str | None = None
+    report_dir: str | None = None
+    error_message: str | None = None
+    stats: RunStats | None = None
+    resumable: bool | None = None
 
 
 class HistoryPage(_FrontendModel):
     items: list[RunSummary]
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -219,7 +219,7 @@ class _RunEventBase(_FrontendModel):
     """
 
     seq: int
-    ts: Optional[datetime] = None
+    ts: datetime | None = None
 
 
 class RunStartedEvent(_RunEventBase):
@@ -234,7 +234,7 @@ class RunStartedEvent(_RunEventBase):
     deep_think_llm: str
     output_language: str
     checkpoint_enabled: bool
-    thinking_config: Optional[ThinkingConfig] = None
+    thinking_config: ThinkingConfig | None = None
 
 
 class AgentStatusEvent(_RunEventBase):
@@ -285,17 +285,17 @@ class ReportSectionEvent(_RunEventBase):
 
 class InvestmentDebateEvent(_RunEventBase):
     type: Literal["investment_debate"] = "investment_debate"
-    bull: Optional[str] = None
-    bear: Optional[str] = None
-    judge: Optional[str] = None
+    bull: str | None = None
+    bear: str | None = None
+    judge: str | None = None
 
 
 class RiskDebateEvent(_RunEventBase):
     type: Literal["risk_debate"] = "risk_debate"
-    aggressive: Optional[str] = None
-    conservative: Optional[str] = None
-    neutral: Optional[str] = None
-    judge: Optional[str] = None
+    aggressive: str | None = None
+    conservative: str | None = None
+    neutral: str | None = None
+    judge: str | None = None
 
 
 class StatsEvent(_RunEventBase):
@@ -340,26 +340,11 @@ class RunFailedEvent(_RunEventBase):
 
 class RunCancelledEvent(_RunEventBase):
     type: Literal["run_cancelled"] = "run_cancelled"
-    at_node: Optional[str] = None
+    at_node: str | None = None
 
 
 RunEvent = Annotated[
-    Union[
-        RunStartedEvent,
-        AgentStatusEvent,
-        ProgressUpdateEvent,
-        AnalystWallTimeEvent,
-        ToolCallEvent,
-        MessageEvent,
-        ReportSectionEvent,
-        InvestmentDebateEvent,
-        RiskDebateEvent,
-        StatsEvent,
-        LlmCallPendingEvent,
-        RunCompletedEvent,
-        RunFailedEvent,
-        RunCancelledEvent,
-    ],
+    RunStartedEvent | AgentStatusEvent | ProgressUpdateEvent | AnalystWallTimeEvent | ToolCallEvent | MessageEvent | ReportSectionEvent | InvestmentDebateEvent | RiskDebateEvent | StatsEvent | LlmCallPendingEvent | RunCompletedEvent | RunFailedEvent | RunCancelledEvent,
     Field(discriminator="type"),
 ]
 """Discriminated union of every SSE event the backend emits."""
@@ -374,9 +359,9 @@ class Announcement(_FrontendModel):
     id: str
     title: str
     body: str
-    url: Optional[str] = None
-    severity: Optional[Literal["info", "warning", "critical"]] = None
-    published_at: Optional[datetime] = None
+    url: str | None = None
+    severity: Literal["info", "warning", "critical"] | None = None
+    published_at: datetime | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -396,7 +381,7 @@ class OllamaAttempt(_FrontendModel):
 
     at: str
     ok: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class OllamaHealth(_FrontendModel):
@@ -426,8 +411,8 @@ class OllamaHealth(_FrontendModel):
 
     status: Literal["ok", "down", "unknown"]
     url: str
-    model_count: Optional[int] = None
-    error: Optional[str] = None
+    model_count: int | None = None
+    error: str | None = None
     recent_attempts: list[OllamaAttempt] = Field(default_factory=list)
     circuit_state: Literal["closed", "open", "half_open"] = "closed"
 
@@ -446,7 +431,7 @@ class UnhealthyModel(_FrontendModel):
     status: Literal[
         "timeout", "http_5xx", "http_4xx", "degraded_empty_response"
     ]
-    upstream_ref: Optional[str] = None
+    upstream_ref: str | None = None
 
 
 class RunValidationError(_FrontendModel):
@@ -485,9 +470,9 @@ class HealthResponse(_FrontendModel):
     status: Literal["ok", "degraded"]
     version: str
     db: Literal["ok", "down"]
-    disk_free_mb: Optional[int] = None
-    active_run_id: Optional[str] = None
-    ollama: Optional[OllamaHealth] = None
+    disk_free_mb: int | None = None
+    active_run_id: str | None = None
+    ollama: OllamaHealth | None = None
 
 
 __all__ = [

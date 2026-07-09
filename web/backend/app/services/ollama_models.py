@@ -60,7 +60,7 @@ import re
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Deque, Literal, Optional, Tuple
+from typing import Literal
 
 import httpx
 from circuitbreaker import CircuitBreakerError
@@ -110,8 +110,8 @@ class ProbeResult(dict):
 
 
 # (base_url, model_id) -> (cached_at_monotonic, ProbeResult)
-_probe_cache: dict[tuple[str, str], tuple[float, "ProbeResult"]] = {}
-_probe_lock: Optional[asyncio.Lock] = None
+_probe_cache: dict[tuple[str, str], tuple[float, ProbeResult]] = {}
+_probe_lock: asyncio.Lock | None = None
 
 # Compiled once at module load; recognises Ollama's standard upstream
 # error reference format ``(ref: <uuid-ish>)``. Used to extract the
@@ -125,9 +125,9 @@ _cache: dict[str, tuple[float, list[str]]] = {}
 #: Updated on EVERY fetch attempt so the health endpoint can tell
 #: "1 transient with 2 prior successes" (no alert) from "2-of-3 failures"
 #: (real outage, alert). Reset by ``_reset_for_tests``.
-_last_attempts: dict[str, Deque[tuple[float, bool, Optional[str]]]] = {}
+_last_attempts: dict[str, deque[tuple[float, bool, str | None]]] = {}
 
-_lock: Optional[asyncio.Lock] = None
+_lock: asyncio.Lock | None = None
 
 #: base_url -> currently-in-flight background refresh task.
 #: ``list_ollama_models`` uses this to avoid scheduling concurrent
@@ -169,8 +169,8 @@ def _build_auth_headers() -> dict[str, str]:
 
 
 def _interpret_attempts(
-    log_deque: Deque[tuple[float, bool, Optional[str]]],
-) -> Tuple[ProbeStatus, Optional[str]]:
+    log_deque: deque[tuple[float, bool, str | None]],
+) -> tuple[ProbeStatus, str | None]:
     """Apply the 2-of-3 hysteresis rule to a rolling attempt log.
 
     Returns ``("ok", None)`` when:
@@ -200,7 +200,7 @@ def _interpret_attempts(
 
 
 def _record_attempt(
-    base_url: str, *, success: bool, error: Optional[str]
+    base_url: str, *, success: bool, error: str | None
 ) -> None:
     """Append to the rolling-3 attempt log; log a transition when the
     interpreted status changes (closed→open or vice versa).
@@ -353,7 +353,7 @@ async def list_ollama_models() -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
-def last_probe_status() -> Tuple[ProbeStatus, Optional[str]]:
+def last_probe_status() -> tuple[ProbeStatus, str | None]:
     """Return the hysteresis-filtered status of recent attempts.
 
     See ``_interpret_attempts`` for the rule. The contract:
@@ -503,7 +503,7 @@ def _probe_payload(model_id: str) -> dict:
     }
 
 
-def _classify_completion(payload: dict) -> tuple[ProbeOutcome, Optional[str]]:
+def _classify_completion(payload: dict) -> tuple[ProbeOutcome, str | None]:
     """Classify a 200 chat-completion as ``ok`` or ``degraded_empty_response``.
 
     "Degraded" means HTTP 200 (so the upstream thinks it succeeded) but
@@ -531,7 +531,7 @@ def _classify_completion(payload: dict) -> tuple[ProbeOutcome, Optional[str]]:
     return ("ok", None)
 
 
-def _extract_upstream_ref(payload: dict, text: str | None) -> Optional[str]:
+def _extract_upstream_ref(payload: dict, text: str | None) -> str | None:
     """Pull an Ollama ``(ref: ...)`` upstream identifier from an error body.
 
     Tries the JSON ``error`` string first (the standard shape), then
@@ -595,7 +595,7 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
         body = _probe_payload(model_id)
 
         outcome: ProbeOutcome
-        upstream_ref: Optional[str] = None
+        upstream_ref: str | None = None
 
         try:
             resp = await upstream_http.request(

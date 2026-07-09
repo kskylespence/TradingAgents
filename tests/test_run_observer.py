@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
 from tradingagents.run_observer import (
-    ANALYST_AGENT_NAMES,
     RunObserver,
     classify_message_type,
     extract_content_string,
@@ -20,12 +19,12 @@ from tradingagents.run_observer import (
 
 class _RecordingObserver(RunObserver):
     def __init__(self) -> None:
-        self.statuses: List[tuple[str, str]] = []
-        self.messages: List[tuple[str, str, str]] = []
-        self.tool_calls: List[tuple[str, Any, str]] = []
-        self.report_sections: List[tuple[str, str]] = []
-        self.investment_debates: List[tuple] = []
-        self.risk_debates: List[tuple] = []
+        self.statuses: list[tuple[str, str]] = []
+        self.messages: list[tuple[str, str, str]] = []
+        self.tool_calls: list[tuple[str, Any, str]] = []
+        self.report_sections: list[tuple[str, str]] = []
+        self.investment_debates: list[tuple] = []
+        self.risk_debates: list[tuple] = []
         self.completed = False
         self.cancelled = False
 
@@ -54,7 +53,7 @@ class _RecordingObserver(RunObserver):
         self.cancelled = True
 
 
-def _fake_graph(chunks: List[Dict[str, Any]]) -> Any:
+def _fake_graph(chunks: list[dict[str, Any]]) -> Any:
     """Build a minimal stand-in for TradingAgentsGraph that yields chunks."""
 
     inner = SimpleNamespace(
@@ -89,7 +88,7 @@ class StreamRunChunkRoutingTests(unittest.TestCase):
     def test_signal_processor_called_with_final_decision(self):
         observer = _RecordingObserver()
         chunks = [{"final_trade_decision": "BUY"}]
-        called_with: List[str] = []
+        called_with: list[str] = []
         stream_run(
             _fake_graph(chunks),
             init_state={},

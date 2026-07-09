@@ -38,7 +38,6 @@ from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
 from tradingagents.providers import available_providers
 
 from .schemas import (
-    AssetType,
     CatalogAnalyst,
     CatalogLanguage,
     CatalogModel,

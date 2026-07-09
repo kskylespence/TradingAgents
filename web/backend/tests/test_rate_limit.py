@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-
 PASSWORD = "password"
 PASSWORD_HASH = bcrypt.hash(PASSWORD)
 
@@ -38,8 +37,8 @@ PASSWORD_HASH = bcrypt.hash(PASSWORD)
 
 @pytest.fixture
 def shared_engine(tmp_path) -> AsyncEngine:
-    from app.db import Base
     from app import models  # noqa: F401
+    from app.db import Base
 
     db_path = tmp_path / "ratelimit.sqlite"
     engine = create_async_engine(
@@ -67,8 +66,8 @@ def test_app(monkeypatch, shared_engine):
     from app.config import get_settings
     get_settings.cache_clear()
 
-    from app.main import create_app
     from app.db import get_session
+    from app.main import create_app
     from app.services.rate_limit import login_rate_limiter
 
     app = create_app()
@@ -179,8 +178,8 @@ def test_restart_simulation_db_rows_still_block(
     from app.config import get_settings
     get_settings.cache_clear()
 
-    from app.main import create_app
     from app.db import get_session
+    from app.main import create_app
     from app.services.rate_limit import login_rate_limiter
 
     app = create_app()
@@ -232,9 +231,8 @@ def test_client_ip_returns_request_client_host(monkeypatch) -> None:
     app must NOT re-parse XFF itself, because the leftmost value of XFF
     is attacker-controlled (see ``test_rate_limit_resists_xff_spoof``).
     """
-    from starlette.requests import Request
-
     from app.services.rate_limit import client_ip
+    from starlette.requests import Request
 
     # XFF present but must be ignored — uvicorn already gave us the real
     # client in ``scope["client"]``.
@@ -273,9 +271,8 @@ def test_rate_limit_resists_xff_spoof() -> None:
     --forwarded-allow-ips='*'``) to set ``request.client.host`` to the
     real client IP. The app no longer touches XFF.
     """
-    from starlette.requests import Request
-
     from app.services.rate_limit import client_ip, login_rate_limiter
+    from starlette.requests import Request
 
     login_rate_limiter.reset()
 

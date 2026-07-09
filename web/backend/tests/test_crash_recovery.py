@@ -27,8 +27,8 @@ Covers the contract spelled out in
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
-from typing import AsyncIterator
 
 import pytest
 from sqlalchemy import select
@@ -37,7 +37,6 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -57,9 +56,11 @@ async def crash_recovery_engine(tmp_path) -> AsyncIterator[AsyncEngine]:
     per-test factory so the lifespan-hook integration test exercises
     the same DB that the seed fixture wrote to.
     """
-    from app import models  # noqa: F401 — register tables on Base.metadata
+    from app import (
+        db as db_module,
+        models,  # noqa: F401 — register tables on Base.metadata
+    )
     from app.db import Base
-    from app import db as db_module
 
     db_path = tmp_path / "crash_recovery.sqlite"
     engine = create_async_engine(
@@ -406,9 +407,8 @@ async def test_lifespan_hook_runs_recovery(session_factory) -> None:
     `(app: FastAPI) -> None` — we don't need to spin up uvicorn to
     exercise it, just invoke it with a placeholder app.
     """
-    from fastapi import FastAPI
-
     from app.lifespan_hooks.crash_recovery import startup_recover
+    from fastapi import FastAPI
 
     run_id = await _seed_run(session_factory, status="running")
 

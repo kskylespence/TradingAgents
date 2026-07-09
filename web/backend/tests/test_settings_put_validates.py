@@ -11,13 +11,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import pytest
+from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-
 from .conftest import install_fake_httpx_ollama as _install_fake_httpx
-
 
 CSRF_TOKEN = "test-csrf-token-put-validate"
 
@@ -34,12 +32,11 @@ def _run(coro):
 
 @pytest.fixture
 def put_client(monkeypatch):
-    from sqlalchemy.pool import StaticPool
-
     from app.db import get_session
     from app.main import app
     from app.routers.settings import get_current_user
     from app.schemas import AuthUser
+    from sqlalchemy.pool import StaticPool
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
 
@@ -50,8 +47,8 @@ def put_client(monkeypatch):
     )
 
     async def _init():
-        from app.db import Base
         from app import models  # noqa: F401
+        from app.db import Base
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

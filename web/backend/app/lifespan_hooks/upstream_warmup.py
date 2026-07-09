@@ -49,7 +49,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Optional
 
 from fastapi import FastAPI
 
@@ -76,8 +75,8 @@ _INITIAL_WARMUP_TIMEOUT_SECONDS: float = 20.0
 # slow, and without an explicit cancel it becomes an orphan task that
 # pytest-asyncio test isolation cannot reliably clean up — observed as
 # cross-test event-loop pollution.
-_refresh_task: Optional[asyncio.Task] = None
-_initial_warmup_task: Optional[asyncio.Task] = None
+_refresh_task: asyncio.Task | None = None
+_initial_warmup_task: asyncio.Task | None = None
 
 
 def _should_warmup_ollama() -> bool:

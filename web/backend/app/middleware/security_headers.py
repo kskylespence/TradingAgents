@@ -37,7 +37,6 @@ from starlette.responses import Response
 
 from . import register
 
-
 CSP_VALUE = (
     "default-src 'self'; "
     "script-src 'self'; "

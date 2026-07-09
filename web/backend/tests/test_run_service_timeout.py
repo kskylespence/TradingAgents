@@ -19,12 +19,11 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures (mirrors test_runs_smoke.py)                                       #
@@ -226,9 +225,10 @@ async def test_run_async_timeout_sets_cancel_event(monkeypatch) -> None:
     This test reaches under the HTTP layer and drives ``_run_async``
     directly so it can capture the ``cancel_event`` instance.
     """
-    from app.services import run_service
-    from app import schemas as S
     from datetime import date
+
+    from app import schemas as S
+    from app.services import run_service
 
     monkeypatch.setenv("TRADINGAGENTS_RUN_MAX_SECONDS", "1")
     monkeypatch.delenv("FAKE_LLM", raising=False)

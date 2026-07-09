@@ -14,18 +14,19 @@ from __future__ import annotations
 import ast
 import datetime
 from abc import ABC
-from typing import Any, Callable, Dict, List, Literal, Optional
+from collections.abc import Callable
+from typing import Any, Literal
 
-ANALYST_ORDER: List[str] = ["market", "social", "news", "fundamentals"]
+ANALYST_ORDER: list[str] = ["market", "social", "news", "fundamentals"]
 
-ANALYST_AGENT_NAMES: Dict[str, str] = {
+ANALYST_AGENT_NAMES: dict[str, str] = {
     "market": "Market Analyst",
     "social": "Sentiment Analyst",
     "news": "News Analyst",
     "fundamentals": "Fundamentals Analyst",
 }
 
-ANALYST_REPORT_MAP: Dict[str, str] = {
+ANALYST_REPORT_MAP: dict[str, str] = {
     "market": "market_report",
     "social": "sentiment_report",
     "news": "news_report",
@@ -49,7 +50,7 @@ class RunObserver(ABC):
         ticker: str,
         asset_type: str,
         analysis_date: str,
-        analysts: List[str],
+        analysts: list[str],
         **kwargs: Any,
     ) -> None: pass
 
@@ -63,17 +64,17 @@ class RunObserver(ABC):
 
     def on_investment_debate(
         self,
-        bull: Optional[str],
-        bear: Optional[str],
-        judge: Optional[str],
+        bull: str | None,
+        bear: str | None,
+        judge: str | None,
     ) -> None: pass
 
     def on_risk_debate(
         self,
-        aggressive: Optional[str],
-        conservative: Optional[str],
-        neutral: Optional[str],
-        judge: Optional[str],
+        aggressive: str | None,
+        conservative: str | None,
+        neutral: str | None,
+        judge: str | None,
     ) -> None: pass
 
     def on_analyst_wall_time(
@@ -86,7 +87,7 @@ class RunObserver(ABC):
 
     def on_cancelled(self) -> None: pass
 
-    def emit_llm_call_pending(self, payload: Dict[str, Any]) -> None:
+    def emit_llm_call_pending(self, payload: dict[str, Any]) -> None:
         """In-run heartbeat: a single LLM call has been outstanding past 30s.
 
         Layer 4 of the resilience pass. The LLM client's ``invoke`` /
@@ -123,7 +124,7 @@ def _is_empty(val: Any) -> bool:
     return not bool(val)
 
 
-def extract_content_string(content: Any) -> Optional[str]:
+def extract_content_string(content: Any) -> str | None:
     """Extract string content from various message formats.
 
     Returns None if no meaningful text content is found.
@@ -150,7 +151,7 @@ def extract_content_string(content: Any) -> Optional[str]:
     return str(content).strip() if not _is_empty(content) else None
 
 
-def classify_message_type(message: Any) -> tuple[str, Optional[str]]:
+def classify_message_type(message: Any) -> tuple[str, str | None]:
     """Classify a LangChain message into display type and extract content.
 
     Returns:
@@ -190,15 +191,15 @@ def format_tool_args(args: Any, max_length: int = 80) -> str:
 
 def stream_run(
     graph: Any,
-    init_state: Dict[str, Any],
-    args: Dict[str, Any],
+    init_state: dict[str, Any],
+    args: dict[str, Any],
     observer: RunObserver,
-    selected_analysts: List[str],
-    cancel_event: Optional[Any] = None,
-    wall_time_tracker: Optional[Any] = None,
-    signal_processor: Optional[Callable[[str], Any]] = None,
-    on_chunk: Optional[Callable[[Dict[str, Any]], None]] = None,
-) -> Dict[str, Any]:
+    selected_analysts: list[str],
+    cancel_event: Any | None = None,
+    wall_time_tracker: Any | None = None,
+    signal_processor: Callable[[str], Any] | None = None,
+    on_chunk: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     """Stream a TradingAgentsGraph run and dispatch chunks to the observer.
 
     Returns the merged final_state. Chunks from `graph.graph.stream(...)`
@@ -221,12 +222,12 @@ def stream_run(
             dispatch (lets the CLI trigger a Rich Live re-render).
     """
     processed_message_ids: set = set()
-    accumulated_reports: Dict[str, Any] = {}
+    accumulated_reports: dict[str, Any] = {}
     # Pre-populate agent_status with the same initial "pending" set the
     # CLI's MessageBuffer.init_for_analysis used to seed. stream_run uses
     # this for the original "skip if already completed" gates without
     # depending on observer internals.
-    agent_status: Dict[str, str] = {}
+    agent_status: dict[str, str] = {}
     for analyst_key in selected_analysts:
         if analyst_key in ANALYST_AGENT_NAMES:
             agent_status[ANALYST_AGENT_NAMES[analyst_key]] = "pending"
@@ -237,7 +238,7 @@ def stream_run(
         "Portfolio Manager",
     ):
         agent_status[agent] = "pending"
-    trace: List[Dict[str, Any]] = []
+    trace: list[dict[str, Any]] = []
 
     def _now() -> str:
         return datetime.datetime.now().strftime("%H:%M:%S")
@@ -298,9 +299,8 @@ def stream_run(
                 found_active = True
             else:
                 _set_status(agent_name, "pending")
-        if not found_active and selected_analysts:
-            if agent_status.get("Bull Researcher") == "pending":
-                _set_status("Bull Researcher", "in_progress")
+        if not found_active and selected_analysts and agent_status.get("Bull Researcher") == "pending":
+            _set_status("Bull Researcher", "in_progress")
 
         # Research Team — investment debate
         if chunk.get("investment_debate_state"):
@@ -366,16 +366,15 @@ def stream_run(
                 observer.on_report_section(
                     "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
                 )
-            if judge:
-                if agent_status.get("Portfolio Manager") != "completed":
-                    _set_status("Portfolio Manager", "in_progress")
-                    observer.on_report_section(
-                        "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
-                    )
-                    _set_status("Aggressive Analyst", "completed")
-                    _set_status("Conservative Analyst", "completed")
-                    _set_status("Neutral Analyst", "completed")
-                    _set_status("Portfolio Manager", "completed")
+            if judge and agent_status.get("Portfolio Manager") != "completed":
+                _set_status("Portfolio Manager", "in_progress")
+                observer.on_report_section(
+                    "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
+                )
+                _set_status("Aggressive Analyst", "completed")
+                _set_status("Conservative Analyst", "completed")
+                _set_status("Neutral Analyst", "completed")
+                _set_status("Portfolio Manager", "completed")
 
             observer.on_risk_debate(
                 agg_hist or None, con_hist or None, neu_hist or None, judge or None
@@ -394,9 +393,9 @@ def stream_run(
     return final_state
 
 
-def _merge_chunks(trace: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _merge_chunks(trace: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge per-node delta chunks into a single dict."""
-    final_state: Dict[str, Any] = {}
+    final_state: dict[str, Any] = {}
     for chunk in trace:
         final_state.update(chunk)
     return final_state

@@ -21,9 +21,7 @@ import asyncio
 import os
 
 import pytest
-
 from app.services import env_inject
-
 
 # ---- Test 1: success path, var was unset --------------------------------- #
 
@@ -60,13 +58,12 @@ def test_scope_restores_env_on_exception(monkeypatch):
     class Boom(RuntimeError):
         pass
 
-    with pytest.raises(Boom):
-        with env_inject.scope(
-            {"EXC_ENV_INJECT_TEST": "transient", "EXC_PREEXISTING": "stomped"}
-        ):
-            assert os.environ["EXC_ENV_INJECT_TEST"] == "transient"
-            assert os.environ["EXC_PREEXISTING"] == "stomped"
-            raise Boom("kaboom")
+    with pytest.raises(Boom), env_inject.scope(
+        {"EXC_ENV_INJECT_TEST": "transient", "EXC_PREEXISTING": "stomped"}
+    ):
+        assert os.environ["EXC_ENV_INJECT_TEST"] == "transient"
+        assert os.environ["EXC_PREEXISTING"] == "stomped"
+        raise Boom("kaboom")
 
     # Both vars restored to their pre-scope state despite the exception.
     assert "EXC_ENV_INJECT_TEST" not in os.environ

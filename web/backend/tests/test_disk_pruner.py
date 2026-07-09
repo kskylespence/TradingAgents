@@ -28,7 +28,6 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
 # --------------------------------------------------------------------------- #
@@ -47,8 +46,8 @@ def _set_mtime(p: Path, days_old: int) -> None:
 @pytest.fixture
 async def db_setup(tmp_path):
     """File-based SQLite engine with all tables created."""
-    from app.db import Base
     from app import models  # noqa: F401 — register tables on Base.metadata
+    from app.db import Base
 
     db_path = tmp_path / "pruner.sqlite"
     engine = create_async_engine(
@@ -288,10 +287,9 @@ async def test_prune_once_never_deletes_outside_data_dir(
 
 async def test_lifespan_hook_starts_and_stops_cleanly(monkeypatch) -> None:
     """``start(app)`` creates a task; ``stop(app)`` cancels it without warnings."""
-    from fastapi import FastAPI
-
     import app.lifespan_hooks.disk_pruner as hook
     import app.services.disk_pruner as svc
+    from fastapi import FastAPI
 
     # Patch the loop to a fast no-op so the test doesn't sleep for 6 hours.
     async def fake_loop(data_dir, retention_days, interval_seconds: int = 1):

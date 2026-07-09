@@ -21,10 +21,9 @@ import logging.config
 import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
-from typing import Optional
 
 # Set by the runner; read by the JSON formatter.
-run_id_var: ContextVar[Optional[str]] = ContextVar("run_id_var", default=None)
+run_id_var: ContextVar[str | None] = ContextVar("run_id_var", default=None)
 
 
 # Standard LogRecord attributes we never want to duplicate in the "extras".

@@ -27,7 +27,6 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select, tuple_
@@ -65,7 +64,7 @@ _CURSOR_SEP = "|"
 
 def _encode_cursor(created_at: datetime, run_id: object) -> str:
     """Pack ``(created_at, run_id)`` into a base64-url string."""
-    raw = f"{created_at.isoformat()}{_CURSOR_SEP}{run_id}".encode("utf-8")
+    raw = f"{created_at.isoformat()}{_CURSOR_SEP}{run_id}".encode()
     # urlsafe_b64encode produces an ASCII bytes object; strip padding so
     # the cursor is friendly in querystrings (we re-pad on decode).
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -107,7 +106,7 @@ def _to_summary(row: Run) -> RunSummary:
     Computes ``elapsed_seconds`` from ``started_at``/``finished_at`` when
     both are present; otherwise leaves it ``None`` (in-flight or queued).
     """
-    elapsed: Optional[float] = None
+    elapsed: float | None = None
     if row.started_at is not None and row.finished_at is not None:
         elapsed = (row.finished_at - row.started_at).total_seconds()
     return RunSummary(
@@ -134,10 +133,10 @@ def _to_summary(row: Run) -> RunSummary:
 @router.get("", response_model=HistoryPage)
 @router.get("/", response_model=HistoryPage)
 async def list_history(
-    cursor: Optional[str] = Query(None, description="Opaque keyset cursor."),
+    cursor: str | None = Query(None, description="Opaque keyset cursor."),
     limit: int = Query(20, ge=1, le=100, description="Page size (cap 100)."),
-    ticker: Optional[str] = Query(None, description="Exact-match ticker filter."),
-    status_filter: Optional[str] = Query(
+    ticker: str | None = Query(None, description="Exact-match ticker filter."),
+    status_filter: str | None = Query(
         None,
         alias="status",
         description="Exact-match status filter (e.g. 'completed').",
@@ -170,7 +169,7 @@ async def list_history(
     result = await session.execute(stmt)
     rows = result.scalars().all()
 
-    next_cursor: Optional[str] = None
+    next_cursor: str | None = None
     if len(rows) > limit:
         # The (limit+1)th row tells us "there's more" — its keyset becomes
         # the cursor; we drop it from the visible page so the page has

@@ -94,10 +94,9 @@ def _dummy_api_keys(monkeypatch):
 @pytest.fixture(scope="function")
 async def db_engine() -> AsyncIterator:
     """A fresh in-memory SQLite engine per test, with all tables created."""
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.db import Base
     from app import models  # noqa: F401 — register all tables on Base.metadata
+    from app.db import Base
+    from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
     async with engine.begin() as conn:
@@ -180,7 +179,6 @@ def install_fake_httpx_ollama(
     transport responses are deterministic.
     """
     import httpx
-
     from app.services import ollama_models, upstream_http
 
     record: dict = {"calls": 0, "last_url": None, "last_headers": None}

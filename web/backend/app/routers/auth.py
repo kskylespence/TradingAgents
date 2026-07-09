@@ -19,12 +19,10 @@ Logout simply clears both cookies. ``/auth/me`` reuses
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import register
 from ..auth import (
     COOKIE_ACCESS_TOKEN,
     COOKIE_CSRF_TOKEN,
@@ -36,7 +34,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..schemas import AuthUser, LoginRequest
 from ..services.rate_limit import login_rate_limiter
-
+from . import register
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

@@ -11,17 +11,16 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
 @dataclass(frozen=True)
 class ProviderSpec:
     key: str
     display: str
-    default_base_url: Optional[str]
+    default_base_url: str | None
 
 
-PROVIDERS: Tuple[ProviderSpec, ...] = (
+PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec("openai", "OpenAI", "https://api.openai.com/v1"),
     ProviderSpec("google", "Google", None),
     ProviderSpec("anthropic", "Anthropic", "https://api.anthropic.com/"),
@@ -72,7 +71,7 @@ def _is_available(spec: ProviderSpec) -> bool:
     return bool(env) and bool(os.environ.get(env))
 
 
-def available_providers() -> Tuple[ProviderSpec, ...]:
+def available_providers() -> tuple[ProviderSpec, ...]:
     """Subset of PROVIDERS whose credentials are present in env.
 
     The CLI still iterates the full PROVIDERS tuple; this helper drives

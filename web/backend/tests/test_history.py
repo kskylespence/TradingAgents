@@ -15,13 +15,12 @@ TestClient-managed thread) and our seed code share state.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -40,8 +39,8 @@ async def history_engine(tmp_path):
     poke ``asyncio.get_event_loop()`` directly — that was deprecated in
     Python 3.10 and raises ``RuntimeError`` in 3.13 when no loop is set.
     """
-    from app.db import Base
     from app import models  # noqa: F401 — register tables on Base.metadata
+    from app.db import Base
 
     db_path = tmp_path / "history.sqlite"
     engine = create_async_engine(

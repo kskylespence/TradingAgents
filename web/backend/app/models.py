@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -36,7 +36,6 @@ from sqlalchemy.types import JSON
 
 from .db import Base
 
-
 # JSONB on Postgres, JSON elsewhere (SQLite for tests).
 JsonType = JSON().with_variant(JSONB(), "postgresql")
 # Native UUID on Postgres, String(36) elsewhere.
@@ -59,7 +58,7 @@ class Run(Base):
     llm_provider: Mapped[str] = mapped_column(String(32), nullable=False)
     quick_think_llm: Mapped[str] = mapped_column(String(128), nullable=False)
     deep_think_llm: Mapped[str] = mapped_column(String(128), nullable=False)
-    thinking_config: Mapped[Optional[dict[str, Any]]] = mapped_column(JsonType, nullable=True)
+    thinking_config: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     output_language: Mapped[str] = mapped_column(
         String(32), nullable=False, default="English"
     )
@@ -67,22 +66,22 @@ class Run(Base):
         Boolean, nullable=False, default=False
     )
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    rating: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    decision_full: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    report_dir: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    rating: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision_full: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    finished_at: Mapped[Optional[datetime]] = mapped_column(
+    finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    stats: Mapped[Optional[dict[str, Any]]] = mapped_column(JsonType, nullable=True)
+    stats: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
 
-    events: Mapped[list["RunEvent"]] = relationship(
+    events: Mapped[list[RunEvent]] = relationship(
         "RunEvent", back_populates="run", cascade="all, delete-orphan"
     )
 
@@ -141,13 +140,13 @@ class UserDefaults(Base):
     __tablename__ = "user_defaults"
 
     id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
-    llm_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    quick_think_llm: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    deep_think_llm: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    research_depth: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
-    analysts: Mapped[Optional[list[str]]] = mapped_column(JsonType, nullable=True)
-    output_language: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    thinking_config: Mapped[Optional[dict[str, Any]]] = mapped_column(
+    llm_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    quick_think_llm: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    deep_think_llm: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    research_depth: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    analysts: Mapped[list[str] | None] = mapped_column(JsonType, nullable=True)
+    output_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    thinking_config: Mapped[dict[str, Any] | None] = mapped_column(
         JsonType, nullable=True
     )
     enable_checkpoint: Mapped[bool] = mapped_column(

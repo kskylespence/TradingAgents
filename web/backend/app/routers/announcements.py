@@ -31,7 +31,6 @@ except ImportError:  # pragma: no cover - exercised when auth team hasn't landed
 
 from . import register
 
-
 router = APIRouter(prefix="/announcements", tags=["announcements"])
 
 

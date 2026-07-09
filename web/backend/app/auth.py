@@ -35,7 +35,6 @@ from passlib.hash import bcrypt
 from .config import get_settings
 from .schemas import AuthUser
 
-
 # Cookie names — exported so middleware (CSRF) and tests can reference
 # the exact same strings without redefining.
 COOKIE_ACCESS_TOKEN = "access_token"

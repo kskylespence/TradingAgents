@@ -18,7 +18,6 @@ from fastapi.testclient import TestClient
 
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 
-
 _ALL_PROVIDER_ENV_VARS: tuple[str, ...] = tuple(
     sorted(
         {env for env in PROVIDER_API_KEY_ENV.values() if env}

@@ -12,12 +12,9 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-import pytest
-from pydantic import TypeAdapter
-
 from app import schemas as S
 from app.observers.web_run_observer import WebRunObserver
-
+from pydantic import TypeAdapter
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

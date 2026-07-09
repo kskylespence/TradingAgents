@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-
 PASSWORD = "password"
 # Bcrypt is deliberately slow; precompute once per process.
 PASSWORD_HASH = bcrypt.hash(PASSWORD)
@@ -47,8 +46,8 @@ def shared_engine(tmp_path) -> AsyncEngine:
     ``test_history.py`` to avoid stepping on the pytest-asyncio loop
     that other test files reuse later in the session.
     """
-    from app.db import Base
     from app import models  # noqa: F401 - registers tables on Base.metadata
+    from app.db import Base
 
     db_path = tmp_path / "auth.sqlite"
     engine = create_async_engine(
@@ -78,8 +77,8 @@ def test_app(monkeypatch, shared_engine):
     from app.config import get_settings
     get_settings.cache_clear()
 
-    from app.main import create_app
     from app.db import get_session
+    from app.main import create_app
     from app.services.rate_limit import login_rate_limiter
 
     app = create_app()
@@ -148,8 +147,8 @@ def test_login_wrong_password_returns_401_and_records_attempt(
     assert "access_token" not in resp.cookies
     assert "csrf_token" not in resp.cookies
     # The attempt must have been persisted as a failure.
-    from sqlalchemy import select
     from app.models import LoginAttempt
+    from sqlalchemy import select
 
     factory = async_sessionmaker(bind=shared_engine, expire_on_commit=False)
 
@@ -226,9 +225,9 @@ def test_me_with_expired_jwt_returns_401(
     from app.config import get_settings
     get_settings.cache_clear()
 
-    from app.main import create_app
-    from app.auth import create_access_token, COOKIE_ACCESS_TOKEN
+    from app.auth import COOKIE_ACCESS_TOKEN, create_access_token
     from app.db import get_session
+    from app.main import create_app
     from app.services.rate_limit import login_rate_limiter
 
     app = create_app()
@@ -377,7 +376,7 @@ def test_decode_access_token_rejects_garbage() -> None:
     os.environ["JWT_SECRET"] = "test-jwt-secret-not-for-production"
     from app.config import get_settings
     get_settings.cache_clear()
-    from app.auth import decode_access_token, create_access_token
+    from app.auth import create_access_token, decode_access_token
     from fastapi import HTTPException
 
     # Garbage string

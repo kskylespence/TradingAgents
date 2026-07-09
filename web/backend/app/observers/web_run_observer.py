@@ -48,8 +48,9 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -107,7 +108,7 @@ class WebRunObserver(RunObserver):
         # needs to pass the loop in explicitly — but in practice
         # WebRunObserver is built inside an async route handler.
         try:
-            self._loop: Optional[asyncio.AbstractEventLoop] = (
+            self._loop: asyncio.AbstractEventLoop | None = (
                 asyncio.get_running_loop()
             )
         except RuntimeError:  # pragma: no cover - constructed off-loop
@@ -127,8 +128,8 @@ class WebRunObserver(RunObserver):
         self._started_at = time.monotonic()
 
         # Set via ``set_completion_info`` before ``on_completed``.
-        self._completion_rating: Optional[S.Rating] = None
-        self._completion_report_dir: Optional[str] = None
+        self._completion_rating: S.Rating | None = None
+        self._completion_report_dir: str | None = None
 
     # ------------------------------------------------------------------ #
     # Public helpers                                                     #
@@ -150,8 +151,8 @@ class WebRunObserver(RunObserver):
     def set_completion_info(
         self,
         *,
-        rating: Optional[S.Rating] = None,
-        report_dir: Optional[str] = None,
+        rating: S.Rating | None = None,
+        report_dir: str | None = None,
     ) -> None:
         """Tell the observer what to emit when ``on_completed`` fires.
 
@@ -319,9 +320,9 @@ class WebRunObserver(RunObserver):
 
     def on_investment_debate(
         self,
-        bull: Optional[str],
-        bear: Optional[str],
-        judge: Optional[str],
+        bull: str | None,
+        bear: str | None,
+        judge: str | None,
     ) -> None:
         payload = self._build(
             S.InvestmentDebateEvent, bull=bull, bear=bear, judge=judge
@@ -330,10 +331,10 @@ class WebRunObserver(RunObserver):
 
     def on_risk_debate(
         self,
-        aggressive: Optional[str],
-        conservative: Optional[str],
-        neutral: Optional[str],
-        judge: Optional[str],
+        aggressive: str | None,
+        conservative: str | None,
+        neutral: str | None,
+        judge: str | None,
     ) -> None:
         payload = self._build(
             S.RiskDebateEvent,

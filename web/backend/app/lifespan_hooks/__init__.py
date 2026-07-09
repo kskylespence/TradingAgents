@@ -35,14 +35,14 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import Awaitable, Callable, List
+from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI
 
 Hook = Callable[[FastAPI], Awaitable[None]]
 
-STARTUP_HOOKS: List[Hook] = []
-SHUTDOWN_HOOKS: List[Hook] = []
+STARTUP_HOOKS: list[Hook] = []
+SHUTDOWN_HOOKS: list[Hook] = []
 
 
 def on_startup(func: Hook) -> Hook:

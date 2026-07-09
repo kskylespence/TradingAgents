@@ -33,8 +33,8 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from typing import Any, List
-from unittest.mock import AsyncMock, patch
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -55,7 +55,7 @@ class _FakeObserver:
     """
 
     def __init__(self) -> None:
-        self.events: List[dict[str, Any]] = []
+        self.events: list[dict[str, Any]] = []
 
     def emit_llm_call_pending(self, payload: dict[str, Any]) -> None:
         self.events.append(dict(payload))
@@ -336,6 +336,5 @@ async def test_underlying_exception_propagates(fast_heartbeat):
 
     with patch.object(
         mod.NormalizedChatOpenAI.__mro__[1], "ainvoke", new=raises
-    ):
-        with pytest.raises(_ProviderError, match="upstream 500"):
-            await llm.ainvoke([("user", "hi")])
+    ), pytest.raises(_ProviderError, match="upstream 500"):
+        await llm.ainvoke([("user", "hi")])

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import FastAPI
 
@@ -19,7 +18,7 @@ log = logging.getLogger(__name__)
 
 # Module-level handle on the running task. Held so ``stop`` can cancel it
 # during FastAPI shutdown. ``None`` until ``start`` runs.
-_task: Optional[asyncio.Task] = None
+_task: asyncio.Task | None = None
 
 
 @on_startup

@@ -41,6 +41,7 @@ dev = [
     "ruff>=0.15",
     "pytest>=8.0",
     "pytest-subtests>=0.13",
+    "pytest-asyncio>=0.24",
 ]
 # Amazon Bedrock support (AWS SigV4 auth + boto3). Optional so the core install
 # stays lean: pip install "tradingagents[bedrock]".
@@ -64,7 +65,9 @@ markers = [
     "unit: fast isolated unit tests",
     "integration: tests requiring external services",
     "smoke: quick sanity-check tests",
+    "asyncio: asyncio-backed tests",
 ]
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -72,7 +75,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["results", "worklog"]
+extend-exclude = ["results", "worklog", "web/backend/build"]
 
 [tool.ruff.lint]
 # Standard "good defaults" rule set (pyflakes + pycodestyle + isort + bugbear +
@@ -84,6 +87,12 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
+"web/backend/app/routers/*.py" = ["B008"]  # FastAPI Depends() in defaults
+"cli/utils.py" = ["F401"]  # re-exports detect_asset_type for tests/CLI
+"run_crm.py" = ["E402"]  # UTF-8 stdout reconfigure must precede imports
+"tradingagents/run_observer.py" = ["B024", "B027"]  # optional callback ABC
+"web/backend/app/**/*.py" = ["SIM105", "SIM108"]
+"web/backend/tests/**/*.py" = ["SIM105", "SIM117", "SIM118"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block

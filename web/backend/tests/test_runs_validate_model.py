@@ -13,12 +13,10 @@ the engine launches.
 from __future__ import annotations
 
 import pytest
+from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from fastapi.testclient import TestClient
 
-from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-
 from .conftest import install_fake_httpx_ollama as _install_fake_httpx
-
 
 CSRF_TOKEN = "test-csrf-token-runs"
 

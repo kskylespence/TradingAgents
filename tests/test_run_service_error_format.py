@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fastapi")
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _BACKEND_ROOT = _REPO_ROOT / "web" / "backend"
 if str(_BACKEND_ROOT) not in sys.path:
@@ -26,9 +28,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 import httpx  # noqa: E402
 import openai  # noqa: E402
-
 from app.services.run_service import _format_engine_error  # noqa: E402
-
 
 # --------------------------------------------------------------------------- #
 # Lightweight exception subclasses                                            #

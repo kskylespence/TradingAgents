@@ -32,16 +32,14 @@ tenacity retry loop, just with deterministic transport responses.
 
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from time import monotonic
-from typing import Callable
 
 import httpx
 import pytest
 from circuitbreaker import CircuitBreakerError
-
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #
@@ -73,9 +71,8 @@ def _no_tenacity_wait(monkeypatch):
     the call site) is NOT affected by this fixture, so test 3 + test 4
     still exercise that behavior end-to-end.
     """
-    from tenacity import wait_none
-
     from app.services import upstream_http
+    from tenacity import wait_none
 
     monkeypatch.setattr(upstream_http, "_WAIT_STRATEGY", wait_none())
 

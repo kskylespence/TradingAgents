@@ -29,7 +29,7 @@ either side — order between the two does not matter for correctness.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -37,7 +37,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from . import register
-
 
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -53,9 +52,7 @@ def _csrf_required(method: str, path: str) -> bool:
     """Return True if this (method, path) must pass the CSRF check."""
     if method.upper() not in STATE_CHANGING_METHODS:
         return False
-    if path in EXEMPT_PATHS:
-        return False
-    return True
+    return path not in EXEMPT_PATHS
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):

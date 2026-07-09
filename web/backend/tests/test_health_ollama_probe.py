@@ -66,7 +66,6 @@ def test_health_outer_status_stays_ok_when_ollama_down(
     threshold is crossed deterministically.
     """
     import httpx
-
     from app.config import get_settings
     from app.services import ollama_models
 

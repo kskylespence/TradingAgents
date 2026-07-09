@@ -58,17 +58,19 @@ import os
 import re
 from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import schemas as S
+from app import (
+    db as _db,  # access via _db.get_session_factory() so tests can monkeypatch
+    schemas as S,
+)
 from app.config import get_settings
 from app.crypto import FernetNotConfiguredError, InvalidToken, decrypt
-from app import db as _db  # access via _db.get_session_factory() so tests can monkeypatch
 from app.models import ApiKey, Run
 from app.observers.web_run_observer import WebRunObserver
 from app.services import env_inject, event_bus
@@ -216,7 +218,7 @@ def _format_engine_error(exc: BaseException, provider: str) -> str:
 #: ``asyncio.Lock()`` binds to whatever loop happens to be running at
 #: import — fine in prod (one long-lived loop), but pytest creates a
 #: fresh loop per test, which would leave the lock stuck across loops.
-GLOBAL_RUN_LOCK: Optional[asyncio.Lock] = None
+GLOBAL_RUN_LOCK: asyncio.Lock | None = None
 
 
 def _get_lock() -> asyncio.Lock:
@@ -228,15 +230,15 @@ def _get_lock() -> asyncio.Lock:
 
 #: Currently-executing run id (only valid while the lock is held).
 #: Reset to ``None`` in the task's ``finally`` block.
-_active_run_id: Optional[UUID] = None
+_active_run_id: UUID | None = None
 
 #: Per-run asyncio.Event used to signal cancellation. The engine loop
 #: polls ``cancel_event.is_set()`` at chunk boundaries.
-_cancel_events: Dict[UUID, asyncio.Event] = {}
+_cancel_events: dict[UUID, asyncio.Event] = {}
 
 #: Per-run asyncio.Task handles for the lifecycle coroutine. Tests rely
 #: on these for deterministic awaits.
-_run_tasks: Dict[UUID, asyncio.Task[Any]] = {}
+_run_tasks: dict[UUID, asyncio.Task[Any]] = {}
 
 
 # --------------------------------------------------------------------------- #
@@ -244,7 +246,7 @@ _run_tasks: Dict[UUID, asyncio.Task[Any]] = {}
 # --------------------------------------------------------------------------- #
 
 
-def get_active_run_id() -> Optional[UUID]:
+def get_active_run_id() -> UUID | None:
     """Return the currently-executing run id, or ``None``.
 
     Used by the health router (``/api/health``) so dashboards can see if
@@ -379,9 +381,9 @@ async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
     cancel_event = asyncio.Event()
     _cancel_events[run_id] = cancel_event
 
-    observer: Optional[WebRunObserver] = None
-    final_state: Dict[str, Any] = {}
-    failed_error: Optional[str] = None
+    observer: WebRunObserver | None = None
+    final_state: dict[str, Any] = {}
+    failed_error: str | None = None
     was_cancelled = False
     completed_ok = False
 
@@ -521,7 +523,7 @@ async def _run_engine(
     asset_type: str,
     observer: WebRunObserver,
     cancel_event: asyncio.Event,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the graph + state, then drive ``stream_run`` on a worker thread.
 
     Returns the merged ``final_state`` dict so the caller can extract
@@ -539,7 +541,7 @@ async def _run_engine(
     from tradingagents.graph.trading_graph import TradingAgentsGraph
 
     settings = get_settings()
-    config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+    config: dict[str, Any] = DEFAULT_CONFIG.copy()
     config["max_debate_rounds"] = int(req.research_depth)
     config["max_risk_discuss_rounds"] = int(req.research_depth)
     config["quick_think_llm"] = req.quick_think_llm
@@ -579,7 +581,7 @@ async def _run_engine(
     )
     args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
-    def _sync_loop() -> Dict[str, Any]:
+    def _sync_loop() -> dict[str, Any]:
         return stream_run(
             graph,
             init_state,
@@ -611,7 +613,7 @@ async def _fake_stream_run(
     asset_type: str,
     observer: WebRunObserver,
     cancel_event: asyncio.Event,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Scripted observer-driven sequence used by the smoke test.
 
     Emits roughly:
@@ -681,7 +683,7 @@ async def _fake_stream_run(
 # --------------------------------------------------------------------------- #
 
 
-async def _collect_api_keys(provider: str) -> Dict[str, str]:
+async def _collect_api_keys(provider: str) -> dict[str, str]:
     """Decrypt the rows in ``api_keys`` whose env-var is needed for ``provider``.
 
     Ollama (and any other provider mapped to ``None`` in
@@ -729,8 +731,8 @@ async def _mark_completed(
     *,
     rating: S.Rating,
     report_dir: str,
-    decision_full: Optional[str],
-    stats: Optional[Dict[str, Any]],
+    decision_full: str | None,
+    stats: dict[str, Any] | None,
 ) -> None:
     factory = _db.get_session_factory()
     async with factory() as session:
@@ -751,8 +753,8 @@ async def _mark_terminal(
     run_id: UUID,
     *,
     new_status: str,
-    error_message: Optional[str] = None,
-    stats: Optional[Dict[str, Any]] = None,
+    error_message: str | None = None,
+    stats: dict[str, Any] | None = None,
 ) -> None:
     factory = _db.get_session_factory()
     async with factory() as session:
@@ -785,7 +787,7 @@ def _detect_asset_type(ticker: str) -> str:
     return detect_asset_type(ticker).value
 
 
-def _provider_backend_url(provider: str) -> Optional[str]:
+def _provider_backend_url(provider: str) -> str | None:
     """Look up the canonical base URL for ``provider`` in ``PROVIDERS``.
 
     Returns ``None`` if the provider isn't in the catalog (the LLM
@@ -801,13 +803,13 @@ def _provider_backend_url(provider: str) -> Optional[str]:
     return None
 
 
-def _build_thinking_config(req: S.RunRequest) -> Optional[Dict[str, Any]]:
+def _build_thinking_config(req: S.RunRequest) -> dict[str, Any] | None:
     """Project the three provider-specific knobs into a JSON-safe dict.
 
     Returns ``None`` (so the DB column stays NULL) when none of the
     knobs are set, keeping the column tidy for non-reasoning providers.
     """
-    cfg: Dict[str, Any] = {}
+    cfg: dict[str, Any] = {}
     if req.google_thinking_level is not None:
         cfg["google_thinking_level"] = req.google_thinking_level
     if req.openai_reasoning_effort is not None:
@@ -818,7 +820,7 @@ def _build_thinking_config(req: S.RunRequest) -> Optional[Dict[str, Any]]:
 
 
 def _finalize_completion(
-    req: S.RunRequest, asset_type: str, final_state: Dict[str, Any]
+    req: S.RunRequest, asset_type: str, final_state: dict[str, Any]
 ) -> tuple[S.Rating, str]:
     """Extract the rating + materialise a report_dir for the completed run.
 
