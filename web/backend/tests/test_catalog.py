@@ -16,12 +16,12 @@ to inject a synthetic user for the happy-path cases.
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 import importlib.util
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.helpers import make_auth_user
 
 
 def _has_real_auth() -> bool:
@@ -48,7 +48,6 @@ def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     from app.main import app
     from app.routers.catalog import get_current_user
-    from app.schemas import AuthUser
 
     app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
     client = TestClient(app)

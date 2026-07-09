@@ -36,8 +36,6 @@ predicate stub.
 
 from __future__ import annotations
 
-from tests.helpers import TEST_ADMIN_ID, seed_admin_user
-
 from collections.abc import Iterable
 from typing import Any
 
@@ -45,6 +43,8 @@ import httpx
 import pytest
 from app.middleware.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from fastapi.testclient import TestClient
+
+from tests.helpers import TEST_ADMIN_ID
 
 CSRF_TOKEN = "test-csrf-token-preflight"
 
@@ -177,7 +177,6 @@ def runs_client(monkeypatch):
 
     from app.main import app
     from app.routers.runs import get_current_user
-    from app.schemas import AuthUser
     from app.services import run_service
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
@@ -387,7 +386,6 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
     from app.db import Base, get_session
     from app.main import app
     from app.models import Run
-    from app.schemas import AuthUser
     from app.services import event_bus as eb_mod, run_service
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 

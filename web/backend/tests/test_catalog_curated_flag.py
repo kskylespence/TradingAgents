@@ -23,10 +23,10 @@ imply a quality signal we don't actually have.
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.helpers import make_auth_user
 
 from .conftest import install_fake_httpx_ollama
 
@@ -35,7 +35,6 @@ from .conftest import install_fake_httpx_ollama
 def authed_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from app.main import app
     from app.routers.catalog import get_current_user
-    from app.schemas import AuthUser
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
 

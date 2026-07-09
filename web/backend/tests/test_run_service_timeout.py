@@ -16,8 +16,6 @@ binding into the ``String(36).with_variant(UUID, "postgresql")`` column.
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 import asyncio
 import time
 import uuid
@@ -26,6 +24,8 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from tests.helpers import make_auth_user
 
 # --------------------------------------------------------------------------- #
 # Fixtures (mirrors test_runs_smoke.py)                                       #

@@ -127,14 +127,6 @@ def anyio_backend():
 # Multi-user helpers — see tests/helpers.py                                   #
 # --------------------------------------------------------------------------- #
 
-from tests.helpers import (  # noqa: E402
-    TEST_ADMIN_ID,
-    TEST_USER_ID,
-    make_auth_user,
-    seed_admin_user,
-    seed_regular_user,
-)
-
 
 # --------------------------------------------------------------------------- #
 # Ollama-discovery fixtures — used by every test that exercises               #

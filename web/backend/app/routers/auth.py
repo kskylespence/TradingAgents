@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import secrets
-
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status

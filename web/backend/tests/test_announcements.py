@@ -11,14 +11,14 @@ so they are deterministic + offline.
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.helpers import make_auth_user
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,6 @@ def _bypass_auth():
     # Import the exact callable the router depends on so the override
     # key matches FastAPI's dependency identity check.
     from app.routers.announcements import get_current_user
-    from app.schemas import AuthUser
 
     app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="test-user")
     yield

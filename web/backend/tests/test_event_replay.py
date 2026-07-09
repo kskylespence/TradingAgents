@@ -19,8 +19,6 @@ DB across publish/subscribe calls within a single test.
 
 from __future__ import annotations
 
-from tests.helpers import TEST_ADMIN_ID, seed_admin_user
-
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
@@ -32,6 +30,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+from tests.helpers import TEST_ADMIN_ID
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                    #

@@ -88,6 +88,7 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
 "web/backend/app/routers/*.py" = ["B008"]  # FastAPI Depends() in defaults
+"web/backend/app/auth.py" = ["B008"]  # FastAPI Depends() in defaults
 "cli/utils.py" = ["F401"]  # re-exports detect_asset_type for tests/CLI
 "run_crm.py" = ["E402"]  # UTF-8 stdout reconfigure must precede imports
 "tradingagents/run_observer.py" = ["B024", "B027"]  # optional callback ABC

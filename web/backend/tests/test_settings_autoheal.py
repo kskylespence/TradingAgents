@@ -44,7 +44,6 @@ def autoheal_client(monkeypatch):
     from app.db import get_session
     from app.main import app
     from app.routers.settings import get_current_user
-    from app.schemas import AuthUser
     from sqlalchemy.pool import StaticPool
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")

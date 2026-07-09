@@ -13,11 +13,10 @@ want absent on a per-test basis to defeat that fixture.
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import make_auth_user
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 
 _ALL_PROVIDER_ENV_VARS: tuple[str, ...] = tuple(
@@ -37,7 +36,6 @@ def _clear_all_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def authed_client() -> TestClient:
     from app.main import app
     from app.routers.catalog import get_current_user
-    from app.schemas import AuthUser
 
     app.dependency_overrides[get_current_user] = lambda: make_auth_user(username="tester")
     client = TestClient(app)

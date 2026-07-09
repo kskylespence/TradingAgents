@@ -52,8 +52,9 @@ log = logging.getLogger(__name__)
 try:
     from app.auth import get_current_user, require_admin  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover — covered when AUTH team's module is absent
-    from app.schemas import AuthUser
     from uuid import UUID
+
+    from app.schemas import AuthUser
 
     def get_current_user() -> AuthUser:
         """Placeholder dep until the AUTH team's ``get_current_user`` lands."""

@@ -12,7 +12,13 @@ from fastapi.testclient import TestClient
 from passlib.hash import bcrypt
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from tests.helpers import TEST_ADMIN_ID, TEST_USER_ID, make_auth_user, seed_admin_user, seed_regular_user
+from tests.helpers import (
+    TEST_ADMIN_ID,
+    TEST_USER_ID,
+    make_auth_user,
+    seed_admin_user,
+    seed_regular_user,
+)
 
 PASSWORD = "password"
 PASSWORD_HASH = bcrypt.hash(PASSWORD)
@@ -136,9 +142,9 @@ async def test_history_isolation(multi_user_engine) -> None:
         )
         await session.commit()
 
+    from app.auth import get_current_user
     from app.db import get_session
     from app.main import create_app
-    from app.auth import get_current_user
 
     app = create_app()
 

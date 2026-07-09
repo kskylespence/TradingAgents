@@ -27,7 +27,6 @@ def runs_client(monkeypatch):
 
     from app.main import app
     from app.routers.runs import get_current_user
-    from app.schemas import AuthUser
     from app.services import run_service
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")

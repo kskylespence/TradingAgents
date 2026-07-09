@@ -17,8 +17,6 @@ Strategy:
 
 from __future__ import annotations
 
-from tests.helpers import make_auth_user
-
 from collections.abc import AsyncIterator
 
 import pytest
@@ -29,6 +27,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.helpers import make_auth_user
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 
 # A static CSRF token for state-changing requests; cookie and header must match.
@@ -73,7 +72,6 @@ def settings_client(monkeypatch) -> AsyncIterator[TestClient]:
     from app.db import get_session
     from app.main import app
     from app.routers.settings import get_current_user
-    from app.schemas import AuthUser
 
     # In-memory SQLite engine, dedicated to this test. We use
     # ``StaticPool`` so every connection through this engine hits the
