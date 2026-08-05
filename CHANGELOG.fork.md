@@ -16,6 +16,18 @@ for the per-deploy cut workflow.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+### Security
+
+## [0.3.1+hf.4] — 2026-08-05
+
+### Added
+
 - **Admin user management from the web UI (web).** A Users card on the Settings
   page lists every account and lets an admin create one with a username and
   password, or delete one — backed by `GET`/`POST`/`DELETE /api/users`, all
@@ -834,5 +846,6 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.2.5-hf.1...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...HEAD
+[0.3.1+hf.4]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1...v0.3.1-hf.4
 [0.2.5+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.2.5...v0.2.5-hf.1
