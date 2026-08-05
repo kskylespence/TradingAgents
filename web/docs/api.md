@@ -84,8 +84,11 @@ reproduce the 404s that motivated this whole change.
 
 ## Auth flow
 
-Cookie-based, single-user. Both cookies are set by `POST /api/auth/login`
-and cleared by `POST /api/auth/logout`.
+Cookie-based, multi-user. Both cookies are set by `POST /api/auth/login`
+and cleared by `POST /api/auth/logout`. The JWT carries `id`, `username`,
+and `role` (`admin` | `user`); `require_admin` gates the admin-only surface
+(`/api/settings/*`, `/api/users/*`). Accounts are managed via
+[User administration](#user-administration).
 
 | Cookie | HttpOnly | Why |
 |---|---|---|

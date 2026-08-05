@@ -1,6 +1,6 @@
 # TradingAgents Web UI
 
-A single-user, login-gated web UI that drives the existing
+A multi-user, login-gated web UI that drives the existing
 `TradingAgentsGraph` engine (the same one the CLI uses — no behavior
 drift). Built for [Coolify](https://coolify.io/) deployment as one
 Docker image.
@@ -8,6 +8,11 @@ Docker image.
 Submit a run from a browser, watch agents complete live via SSE, see a
 five-tier rating, download the report, browse history, manage your
 provider API keys — without ever opening a terminal.
+
+Accounts come in two roles. An **admin** configures provider API keys and
+run defaults, and adds or removes accounts from the Settings page; a
+**user** submits runs and sees only their own history. The first admin is
+seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` at startup.
 
 > **Apache 2.0**, same as the parent project. See `../LICENSE`.
 

@@ -399,6 +399,14 @@ upstream probe block (`status`, `model_count`, `circuit_state`).
 4. Open `https://tradingagents.example.com` in your browser, log in with
    `ADMIN_USERNAME` + the plaintext password you hashed in Step 1.
 
+   That account is the **bootstrap admin**, re-created from these env vars on
+   every startup. To add further logins, go to **Settings → Users** and create
+   them there — no redeploy and no env var needed. New accounts are always
+   standard users; the bootstrap admin stays the only admin. See
+   [`web/docs/operations.md`](web/docs/operations.md#user-accounts) for the
+   lifecycle details, including the fact that deleting a user does not end a
+   session they already hold.
+
 5. Submit a small smoke run (lite preset example):
 
    - Ticker: `SPY`

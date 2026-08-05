@@ -17,7 +17,7 @@ backend working directory. Anything not listed below is ignored
 
 | Name | What it does |
 |---|---|
-| `ADMIN_USERNAME` | The single user's login name. |
+| `ADMIN_USERNAME` | Login name of the **bootstrap admin** — the account upserted from env on every startup (fixed id `…0001`). Not the only account: further users are added from the Settings page, see [User accounts](#user-accounts). |
 | `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password (`passlib.hash.bcrypt`). The plaintext password is never stored. Required (no default); enforced `min_length=60` because every bcrypt hash is exactly 60 chars. Generate with the recipe in [`DEPLOY.md` Step 1](../../DEPLOY.md). |
 | `JWT_SECRET` | HMAC secret for signing the `access_token` cookie (HS256, `app/auth.py`). Required (no default); enforced `min_length=32`. Rotating it invalidates every existing session — see [Secret rotation](#secret-rotation). 64 hex chars from `openssl rand -hex 32`. |
 | `FERNET_KEY` | Master key used by `app/crypto.py` to encrypt provider API keys at rest in the `api_keys` table. Required (no default); enforced `min_length=44`. Produce with `Fernet.generate_key()` (44 url-safe base64 chars). **Lose this key and the stored keys become unreadable forever.** |
@@ -34,7 +34,8 @@ silently runs with a publicly-known dev string.
 
 | Name | Default | What it does |
 |---|---|---|
-| `JWT_TTL_SECONDS` | `604800` (7 days) | How long an issued JWT is valid. Rotating this does not retroactively shorten existing tokens. |
+| `JWT_TTL_SECONDS` | `604800` (7 days) | How long an issued JWT is valid. Rotating this does not retroactively shorten existing tokens. Also the window during which a **deleted** user keeps access — see [User accounts](#user-accounts). |
+| `ROB_INITIAL_PASSWORD` | unset | **Legacy.** Seeds a single hardcoded `rob@rob` account on first boot if it doesn't already exist (`services/users.py:ensure_rob_user`). Superseded by the Settings-page user management — prefer that for new accounts. Kept because removing it would delete an existing account on a live deployment. |
 | `DATA_DIR` | `/data/tradingagents` | Where reports, checkpoints, and the memory log live. Must match the Coolify volume mount path. |
 | `RETENTION_DAYS` | `90` | How old report dirs and checkpoint files must be before the [disk pruner](#disk-pruner) deletes them. |
 | `APP_ENV` | `development` | Free-form label surfaced in `backend.startup` logs. Set to `production` in prod. |
@@ -126,12 +127,50 @@ key).
 The canonical provider-to-env-var mapping is
 `tradingagents.llm_clients.api_key_env.PROVIDER_API_KEY_ENV`.
 
+## User accounts
+
+Accounts live in the Postgres `users` table (`id`, `username`,
+`password_hash`, `role`, `created_at`). Two roles: `admin` and `user`.
+
+**Adding and removing accounts** is done from the **Settings page → Users**
+card by any admin, backed by `GET`/`POST`/`DELETE /api/users`. No redeploy,
+no SQL. New accounts are always created with `role="user"` — the role is
+hardcoded server-side, so there is no way to mint a second admin through
+the UI or the API.
+
+**The bootstrap admin** (fixed id `00000000-0000-0000-0000-000000000001`) is
+upserted from `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` on **every** startup.
+Consequences worth knowing:
+
+- Changing `ADMIN_USERNAME` renames that account rather than creating a
+  second one — the id is what identifies it, not the name.
+- It cannot be deleted through the API (`400`); it would simply reappear on
+  the next restart.
+- Its password is only changeable by changing `ADMIN_PASSWORD_HASH` and
+  redeploying. There is no password-change endpoint for any account.
+
+**Deleting a user does not end a session they already hold.** The JWT is
+stateless — it is verified by signature and expiry alone, and there is no
+revocation list. A deleted user's cookie keeps working until it expires
+(`JWT_TTL_SECONDS`, default **7 days**), during which they can still reach
+JWT-only routes such as `GET /api/auth/me`. Their next run submission fails
+noisily: the insert references a `users` row that no longer exists, raising
+a foreign-key error surfaced as a 500.
+
+> **To cut off a deleted user immediately, rotate `JWT_SECRET`.** That is
+> the only lever, and it logs everyone else out too.
+
+**Users who own runs cannot be deleted** — the API returns `409` naming the
+run count. Run history is deliberately preserved rather than cascade-deleted.
+To retire such an account, rotate `JWT_SECRET` to kill the session; the row
+stays, and its history stays with it.
+
 ## Secret rotation
 
 | Secret | Effect of rotation | Effect of loss |
 |---|---|---|
 | `ADMIN_PASSWORD_HASH` | Next login uses the new hash; existing JWT sessions stay valid until their `exp` (default 7 days). | Re-generate from a new password. |
-| `JWT_SECRET` | Every existing session is invalidated immediately — your "log out everywhere" lever. | Re-generate. Users re-log-in. |
+| `JWT_SECRET` | Every existing session is invalidated immediately — your "log out everywhere" lever, and the only way to cut off a **deleted** user before their token expires (see [User accounts](#user-accounts)). | Re-generate. Users re-log-in. |
 | `FERNET_KEY` | Not currently supported (see below). | **Stored provider API keys become permanently unreadable.** No recovery. The user must re-enter them via the Settings page. Back this key up. |
 | `DATABASE_URL` (Postgres password) | Update the password inside Postgres **and** the URL in Coolify, then **Deploy** (not Restart). | App health goes `degraded` (`db_check_failed`). |
 

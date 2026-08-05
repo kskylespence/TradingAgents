@@ -317,6 +317,8 @@ them; the parent CLAUDE.md adds the broader context.
 | Plaintext API keys never appear in responses, logs, or error messages | Including `GET /api/settings/api-keys` (returns `{configured, last_updated}` only). | `app/routers/settings.py` |
 | CSRF exempts exactly `POST /api/auth/login` | Chicken-and-egg: login sets the CSRF cookie. Every other state-changing path requires the double-submit header. | `app/middleware/csrf.py` |
 | State-changing routes require JWT | Including logout (defense-in-depth). | `app/routers/auth.py` |
+| Password hashes never appear in responses, logs, or error messages | `UserSummary` has no such field, so this holds by construction rather than by care. | `app/routers/users.py` |
+| Privilege level is never taken from the request body | `CreateUserRequest` has no `role` field and Pydantic ignores unknown keys, so `role="user"` is a server-side literal. There is no path to mint an admin over HTTP. | `app/routers/users.py` |
 
 ## The `GLOBAL_RUN_LOCK` invariant
 
@@ -383,5 +385,6 @@ that already does something similar:
 - Read + write with at-rest encryption → `app/routers/settings.py`
 - Submit-then-stream lifecycle + SSE → `app/routers/runs.py`
 - Proxy with caching → `app/routers/announcements.py`
+- Admin-only CRUD over a table → `app/routers/users.py`
 
 Each of those is short, focused, and uses the established conventions.

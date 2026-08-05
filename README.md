@@ -95,7 +95,7 @@ Our framework decomposes complex trading tasks into specialized roles.
 
 ## Web UI
 
-In addition to the CLI, TradingAgents ships a single-user web UI
+In addition to the CLI, TradingAgents ships a multi-user web UI
 (FastAPI + React) that drives the same engine and is built for
 [Coolify](https://coolify.io/) deployment as one Docker image. Submit a
 run from a browser, watch agents complete live via SSE, see the

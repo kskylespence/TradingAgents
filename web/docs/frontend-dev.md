@@ -186,6 +186,7 @@ Query keys used across the app:
 | `["catalog", ...]` | `useCatalog.ts` | Never — backend catalog is session-immutable |
 | `["settings", "defaults"]` | `useUserDefaults.ts` | `PUT /api/settings/defaults` |
 | `["api-keys"]` | (Settings page) | `PUT/DELETE /api/settings/api-keys/:env` |
+| `["users"]` | `components/UsersCard.tsx` | `POST /api/users`, `DELETE /api/users/:id` |
 | `["run", runId]` | `useRun.ts` | Auto: terminal SSE event triggers `runQuery.refetch()` |
 | `["history", filters]` | `useHistory.ts` | After cancel/resume |
 | `["health"]` | `useHealth.ts` | Auto-poll every 30 s (`refetchInterval: 30_000`) |
