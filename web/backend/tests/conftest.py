@@ -136,18 +136,27 @@ def anyio_backend():
 
 
 @pytest.fixture(autouse=True)
-def _reset_ollama_cache():
+async def _reset_ollama_cache():
     """Clear the live-discovery cache + lock around every test.
 
     Required because pytest-asyncio gives each test its own event loop;
     a stale ``asyncio.Lock`` from a previous test bound to a dead loop
     raises ``RuntimeError: <Lock> is bound to a different event loop``.
     Also prevents cross-test cache pollution.
+
+    This fixture is ``async`` specifically so teardown can *await*
+    ``drain_in_flight_refreshes()``. ``_reset_for_tests()`` is sync and can
+    only call ``task.cancel()``, which merely requests cancellation — the
+    stale-while-revalidate refresh stays in state ``cancelling`` until the
+    loop runs it again, and pytest-asyncio closes the loop first. That is
+    what produced "Task was destroyed but it is pending!" followed by
+    ``RuntimeError: Event loop is closed`` at teardown.
     """
     from app.services import ollama_models
 
     ollama_models._reset_for_tests()
     yield
+    await ollama_models.drain_in_flight_refreshes()
     ollama_models._reset_for_tests()
 
 

@@ -252,3 +252,48 @@ async def test_shutdown_cancels_refresh_task_and_closes_client(monkeypatch) -> N
     assert upstream_http._client is None, (
         "upstream_http client not closed/nulled by shutdown hook"
     )
+
+
+@pytest.mark.asyncio
+async def test_shutdown_drains_in_flight_catalog_refresh(monkeypatch) -> None:
+    """Shutdown MUST settle stale-while-revalidate refreshes too.
+
+    ``shutdown_ollama`` already cancels the two tasks it owns
+    (``_initial_warmup_task``, ``_refresh_task``), but
+    ``ollama_models._schedule_background_refresh`` fire-and-forgets a *third*
+    kind of task that nothing tracked. On a restart mid-refresh the loop
+    closed on it — asyncio logs "Task was destroyed but it is pending!" and
+    the HTTP request is abandoned. Worse, the hook's final
+    ``upstream_http.close_client()`` would close the connection pool out from
+    under a request still using it, so the drain has to happen *before* it.
+    """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
+    from app.lifespan_hooks import upstream_warmup
+    from app.services import ollama_models
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _blocked_fetch(base_url: str) -> list[str]:
+        started.set()
+        await release.wait()
+        return ["late"]
+
+    # Drive a real background refresh that is provably still in flight.
+    monkeypatch.setattr(ollama_models, "_fetch_now", _blocked_fetch)
+    ollama_models._schedule_background_refresh("https://ollama.com/v1")
+    task = ollama_models._in_flight_refresh["https://ollama.com/v1"]
+    await started.wait()
+    assert not task.done(), "precondition: refresh must be in flight"
+
+    # Shutdown must not hang on it, and must not leave it pending. The
+    # drain's timeout is what bounds this — the fetch never unblocks.
+    monkeypatch.setattr(ollama_models, "_DRAIN_TIMEOUT_SECONDS", 0.05)
+    await upstream_warmup.shutdown_ollama(app=None)
+
+    assert task.done(), "in-flight catalog refresh still pending after shutdown"
+    assert ollama_models._in_flight_refresh == {}
+
+    release.set()

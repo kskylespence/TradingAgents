@@ -29,8 +29,16 @@ cd web/backend
 uv sync --extra dev
 ```
 
-The `[tool.uv.sources]` table pins `tradingagents` to `../` editable, so
-`uv` resolves it without the manual two-step.
+The `[tool.uv.sources]` table pins `tradingagents` to `../../` (the repo
+root) editable, so `uv` resolves it without the manual two-step.
+
+Equivalently, from the repo root without changing directory:
+
+```bash
+uv venv --python 3.13 .venv && source .venv/bin/activate
+uv pip install -e .                    # tradingagents first...
+uv pip install -e "web/backend[dev]"   # ...then the backend
+```
 
 ## In Docker / Coolify
 

@@ -202,3 +202,45 @@ async def test_failure_does_not_poison_cache(
 
     _expire_cache()
     assert await list_ollama_models() == ["good"]
+
+
+async def test_drain_in_flight_refreshes_awaits_scheduled_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draining must leave no stale-while-revalidate refresh pending.
+
+    ``_schedule_background_refresh`` fires and forgets an ``asyncio.Task``.
+    Nothing ever awaited it: ``_reset_for_tests`` only *requests* cancellation
+    (``task.cancel()`` throws ``CancelledError`` in at the next suspension
+    point, leaving the task in state ``cancelling``), and no shutdown hook
+    touched it at all. Either way the loop closes on a live task and asyncio
+    logs "Task was destroyed but it is pending!" — noise in tests, and a
+    genuinely orphaned HTTP request on a production restart.
+    """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.example.com/v1")
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+
+    stats = _install_scripted_client(
+        monkeypatch,
+        {"json": {"data": [{"id": "good"}]}},
+        {"json": {"data": [{"id": "fresher"}]}},
+    )
+
+    from app.services import ollama_models
+    from app.services.ollama_models import list_ollama_models
+
+    assert await list_ollama_models() == ["good"]
+
+    _expire_cache()
+    # Stale-serve: returns the cached list immediately and schedules the
+    # background refresh this test is about.
+    assert await list_ollama_models() == ["good"]
+
+    task = ollama_models._in_flight_refresh["https://ollama.example.com/v1"]
+    assert not task.done(), "precondition: the refresh must still be in flight"
+
+    await ollama_models.drain_in_flight_refreshes()
+
+    assert task.done(), "drain must not leave the refresh pending"
+    assert ollama_models._in_flight_refresh == {}
+    assert stats["calls"] == 2, "the drained refresh should have completed"

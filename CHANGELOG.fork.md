@@ -35,6 +35,43 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **Orphaned catalog refreshes on shutdown (web).** `ollama_models` schedules
+  stale-while-revalidate refreshes with a fire-and-forget `asyncio.create_task`,
+  and nothing ever awaited them. `shutdown_ollama` cancelled the two tasks it
+  owns but not these, so a restart mid-refresh closed the event loop on a live
+  task — asyncio logged `Task was destroyed but it is pending!` and the HTTP
+  request was abandoned, while `upstream_http.close_client()` pulled the
+  connection pool out from under it. New `drain_in_flight_refreshes()` settles
+  them (bounded wait, then cancel-and-await) and the shutdown hook calls it
+  *before* closing the client. Note `task.cancel()` alone was never sufficient:
+  it only requests cancellation, leaving the task in state `cancelling` until
+  the loop runs it again.
+
+- **Backend test teardown (web).** The autouse `_reset_ollama_cache` fixture is
+  now `async` so it can *await* the drain above. As a sync fixture it could
+  only call `task.cancel()`, and pytest-asyncio closed the per-test loop before
+  the cancellation was processed — surfacing as two `ERROR at teardown` /
+  `RuntimeError: Event loop is closed` in
+  `test_ollama_models_failure_keeps_last_good.py`.
+
+- **`[tool.uv.sources]` path (web backend).** `tradingagents` pointed at `..`,
+  which resolves relative to `web/backend/` and therefore at `web/` — a
+  directory with no `pyproject.toml`. Every uv-based install failed with "does
+  not appear to be a Python project", including the `uv sync --extra dev` route
+  that `dev-install.md` documents. Corrected to `../..`. Plain pip was immune
+  because it ignores `[tool.uv.sources]` entirely, which is why this went
+  unnoticed.
+
+- **Unpinned test dependencies (web backend).** `pytest-asyncio` is now capped
+  `<1.0`: the 1.x per-test loop and fixture-finalisation changes break
+  `test_rate_limit.py` ("There is no current event loop in thread 'MainThread'")
+  and three `test_runs_preflight_probe.py` tests, so an uncapped `>=0.24` let a
+  fresh install silently resolve to 1.x and drop the suite from all-green to
+  3 failed / 5 errors. Also added an explicit `psycopg[binary]` dev dep —
+  `pytest-postgresql` auto-loads via entry points and imports `psycopg` at
+  collection time, so on a host with no system libpq (macOS without Homebrew)
+  the entire session aborted before running a single test.
+
 - **Migration 0003 (Postgres).** Cast bootstrap admin UUID literals in raw SQL so
   `alembic upgrade head` succeeds on PostgreSQL (asyncpg rejected varchar binds
   against UUID columns).

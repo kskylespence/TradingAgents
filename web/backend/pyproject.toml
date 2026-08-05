@@ -39,8 +39,22 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
-    "pytest-asyncio>=0.24",
+    # Capped below 1.0 deliberately. pytest-asyncio 1.x changed per-test
+    # event-loop and fixture finalisation: `test_rate_limit.py` fixtures die
+    # with "RuntimeError: There is no current event loop in thread
+    # 'MainThread'" and three `test_runs_preflight_probe.py` tests fail. With
+    # an uncapped `>=0.24` a fresh install silently resolves to 1.x and the
+    # suite goes from all-green to 3 failed / 5 errors. The `pytest` major
+    # version is NOT the trigger — 8.x and 9.x behave identically here.
+    # Lift the cap only alongside a migration to the 1.x loop-scope API.
+    "pytest-asyncio>=0.24,<1.0",
     "pytest-postgresql>=6.1",
+    # pytest-postgresql imports psycopg, which needs libpq at *collection*
+    # time (the plugin auto-loads via entry points even for tests that never
+    # touch Postgres). The [binary] extra vendors libpq into the wheel;
+    # without it a machine with no system libpq — e.g. macOS without
+    # Homebrew — aborts the whole session before a single test runs.
+    "psycopg[binary]>=3.1",
     "anyio>=4.6",
     "aiosqlite>=0.20",
     "greenlet>=3.0",
@@ -48,8 +62,14 @@ dev = [
 
 # When using uv (https://docs.astral.sh/uv/), this lets the path-dep resolve
 # automatically. Plain pip users follow dev-install.md.
+#
+# The path is relative to THIS file's directory (web/backend/), so the repo
+# root — where the `tradingagents` pyproject.toml lives — is two levels up.
+# This previously read `..`, which pointed at `web/` and failed with "does
+# not appear to be a Python project". Plain pip never noticed because it
+# ignores [tool.uv.sources] entirely.
 [tool.uv.sources]
-tradingagents = { path = "..", editable = true }
+tradingagents = { path = "../..", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["."]

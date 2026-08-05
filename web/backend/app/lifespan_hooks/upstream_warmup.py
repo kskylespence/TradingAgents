@@ -212,6 +212,17 @@ async def shutdown_ollama(app: FastAPI) -> None:
             log.exception("upstream_warmup.refresh_shutdown_failed")
     _refresh_task = None
 
+    # Settle any stale-while-revalidate refresh that
+    # ``ollama_models._schedule_background_refresh`` fire-and-forgot. This
+    # hook does not own those tasks, but nothing else drains them, so before
+    # this they outlived the loop ("Task was destroyed but it is pending!").
+    # Order matters: they borrow the shared client we close below, so
+    # draining first stops us closing the connection pool out from under an
+    # in-flight request.
+    from app.services import ollama_models
+
+    await ollama_models.drain_in_flight_refreshes()
+
     # Lazy import so a broken ``upstream_http`` doesn't prevent the rest
     # of shutdown from running. ``close_client`` is itself safe to call
     # even if the singleton was never constructed.

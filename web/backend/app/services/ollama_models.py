@@ -258,6 +258,44 @@ def _schedule_background_refresh(base_url: str) -> None:
     _in_flight_refresh[base_url] = task
 
 
+_DRAIN_TIMEOUT_SECONDS = 5.0
+
+
+async def drain_in_flight_refreshes(timeout: float | None = None) -> None:
+    """Settle every in-flight background refresh. Never raises.
+
+    ``_schedule_background_refresh`` fire-and-forgets its task, and nothing
+    used to await it. ``task.cancel()`` alone is not enough — it only
+    *requests* cancellation by arranging a ``CancelledError`` at the task's
+    next suspension point, so the task sits in state ``cancelling`` until the
+    loop runs it again. Any caller about to close the loop must therefore
+    await it, or asyncio logs "Task was destroyed but it is pending!" and the
+    in-flight HTTP request is abandoned mid-flight.
+
+    Gives each task ``timeout`` seconds to finish on its own — a refresh that
+    is nearly done should be allowed to land its result in ``_cache`` — then
+    cancels and awaits whatever is left so shutdown stays bounded.
+
+    ``timeout=None`` reads ``_DRAIN_TIMEOUT_SECONDS`` at call time rather than
+    binding it as a default argument, so tests can monkeypatch the module
+    constant (same test-seam convention as ``upstream_warmup``).
+    """
+    limit = _DRAIN_TIMEOUT_SECONDS if timeout is None else timeout
+    tasks = [t for t in _in_flight_refresh.values() if not t.done()]
+    if tasks:
+        _, pending = await asyncio.wait(tasks, timeout=limit)
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                log.exception("ollama_models.refresh_drain_failed")
+    _in_flight_refresh.clear()
+
+
 # --------------------------------------------------------------------------- #
 # Catalog list                                                                #
 # --------------------------------------------------------------------------- #
@@ -703,6 +741,7 @@ __all__ = [
     "ProbeResult",
     "ProbeStatus",
     "cached_probe_unhealthy_models",
+    "drain_in_flight_refreshes",
     "last_probe_status",
     "list_ollama_models",
     "probe_model_liveness",
