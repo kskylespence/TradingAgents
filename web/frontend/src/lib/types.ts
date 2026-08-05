@@ -85,6 +85,34 @@ export interface LoginRequest {
   password: string;
 }
 
+// ----- User administration -----
+
+/**
+ * A user account as returned by the admin endpoints.
+ *
+ * Mirrors `app/schemas.py:UserSummary`. Deliberately has no password or
+ * hash field — the backend never sends one.
+ */
+export interface UserSummary {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  created_at: string;
+  /** Runs owned by this account; a non-zero count blocks deletion. */
+  run_count: number;
+}
+
+/**
+ * Body for POST /api/users. Mirrors `app/schemas.py:CreateUserRequest`.
+ *
+ * No `role` field by design: new accounts are always created as `"user"`,
+ * hardcoded server-side.
+ */
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+}
+
 // ----- Settings -----
 
 export interface ApiKeyStatus {

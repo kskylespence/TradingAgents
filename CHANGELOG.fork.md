@@ -16,6 +16,24 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **Admin user management from the web UI (web).** A Users card on the Settings
+  page lists every account and lets an admin create one with a username and
+  password, or delete one — backed by `GET`/`POST`/`DELETE /api/users`, all
+  gated on `require_admin`. Previously the only way to add an account was to
+  write a hardcoded seeder in Python (`ensure_rob_user`), set a matching env var,
+  and redeploy; adding a third user meant a code change. New accounts are always
+  created with `role="user"` — the role is hardcoded server-side and `role` is
+  absent from the request schema, so a client cannot POST its way to admin.
+  Deleting a user who owns runs is refused with a 409 naming the count rather
+  than cascading, because runs are the product of the app and destroying
+  analysis history as a side effect of removing a login is unrecoverable.
+  Delete arms on the first click and fires on the second — the rows sit close
+  together and the action has no undo. Note the JWT is stateless, so deleting
+  a user does **not** end a session they already hold; it expires with the
+  token (default 7 days), or immediately if `JWT_SECRET` is rotated. That
+  limitation is documented in `web/docs/api.md` and surfaced in the UI rather
+  than left for an operator to discover.
+
 - **Multi-user profiles (web).** Database-backed `users` table with `admin` and
   `user` roles, per-user run/history isolation, JWT claims (`id`, `username`,
   `role`), startup bootstrap of the env-configured admin account, and optional

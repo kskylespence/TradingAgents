@@ -12,7 +12,13 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 # --------------------------------------------------------------------------- #
 # Enums (typed string literals to match TS exactly)                           #
@@ -111,6 +117,61 @@ class AuthUser(_FrontendModel):
 class LoginRequest(_FrontendModel):
     username: str
     password: str
+
+
+# --------------------------------------------------------------------------- #
+# User administration                                                         #
+# --------------------------------------------------------------------------- #
+
+# bcrypt hashes only the first 72 BYTES of a password and passlib raises on
+# anything longer. Note bytes, not characters: a 40-character password of
+# 4-byte emoji is 160 bytes. Validating the encoded length (below) is what
+# makes the limit honest — silently truncating would mean two different
+# passwords authenticate the same account.
+_BCRYPT_MAX_PASSWORD_BYTES = 72
+
+
+class UserSummary(_FrontendModel):
+    """A user account as exposed to admins.
+
+    Deliberately has no ``password_hash`` field. Same discipline as
+    ``ApiKeyStatus``: the credential never leaves the database, so it
+    cannot leak through a response body, an error payload, or a log line.
+    """
+
+    id: UUID
+    username: str
+    role: Literal["admin", "user"]
+    created_at: datetime
+    # Number of runs owned by this user. Surfaced so the admin UI can
+    # explain why a delete is blocked instead of showing a bare 409.
+    run_count: int
+
+
+class CreateUserRequest(_FrontendModel):
+    """Body for ``POST /api/users``.
+
+    Note there is no ``role`` field: new accounts are always ``"user"``,
+    hardcoded server-side. Pydantic ignores unknown keys, so a client
+    sending ``role: "admin"`` is silently dropped rather than honoured.
+    """
+
+    username: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=3, max_length=128),
+    ]
+    password: str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def _password_fits_bcrypt(cls, v: str) -> str:
+        encoded = len(v.encode("utf-8"))
+        if encoded > _BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"password must be at most {_BCRYPT_MAX_PASSWORD_BYTES} bytes "
+                f"when UTF-8 encoded (got {encoded})"
+            )
+        return v
 
 
 # --------------------------------------------------------------------------- #

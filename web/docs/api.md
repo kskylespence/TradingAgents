@@ -158,6 +158,72 @@ hydrates the in-memory bucket from the DB so a deploy or crash does
 for that IP, so a typo-then-correct sequence isn't punished beyond the
 initial wrong attempts.
 
+## User administration
+
+`GET`/`POST`/`DELETE /api/users` let an **admin** manage accounts from the
+Settings page. All three take `Depends(require_admin)`, so a valid JWT with
+`role: "user"` gets `403`, not `401`.
+
+`UserSummary` (the only shape these endpoints return) has no `password` or
+`password_hash` field, so credential material cannot leak through a response
+body, an error payload, or a log line. It carries `run_count` so the UI can
+explain a blocked delete instead of showing a bare `409`.
+
+**Creating.** `CreateUserRequest` is `{username, password}` — there is no
+`role` field, and new accounts are hardcoded to `role="user"` server-side.
+Pydantic ignores unknown keys, so a client POSTing `role: "admin"` is silently
+dropped rather than honoured; `tests/test_users_admin.py` asserts this
+explicitly so a future `**body.model_dump()` refactor can't quietly open an
+escalation path.
+
+Validation:
+
+| Field | Rule | Why |
+|---|---|---|
+| `username` | stripped, 3–128 chars | — |
+| `username` | collisions rejected **case-insensitively** → `409` | The DB `UNIQUE` constraint is case-sensitive, so `Rob` and `rob` would otherwise coexist as two accounts that look identical in the UI |
+| `password` | ≥ 8 chars | — |
+| `password` | ≤ 72 **bytes** UTF-8 encoded → `422` | bcrypt hashes only the first 72 bytes. Bytes, not characters: 40 emoji is 160 bytes. Truncating would mean two different passwords authenticate the same account, so we reject instead |
+
+**Deleting.** Four refusals, each with its own status so the UI can explain
+itself:
+
+| Case | Status |
+|---|---|
+| Target is the bootstrap admin (`BOOTSTRAP_ADMIN_ID`, `…0001`) | `400` — `upsert_admin_user()` re-creates it from env on every boot, so deleting it silently reappears |
+| Target is the caller | `400` — prevents an admin locking themselves out |
+| Target owns runs | `409`, message names the count |
+| No such id | `404` |
+
+The owns-runs check runs in **application code**, not via the database. `Run.user_id`
+is `ForeignKey(..., ondelete="RESTRICT")`, so Postgres would raise — but SQLite
+only enforces foreign keys when `PRAGMA foreign_keys=ON` is set per connection,
+and the test suite runs in-memory SQLite. Checking explicitly keeps the behaviour
+identical on both engines and lets the response carry the run count.
+
+Runs are deliberately **not** cascaded. They are the product of the app;
+destroying analysis history as a side effect of removing a login would be
+surprising and unrecoverable.
+
+> **Deleting a user does not revoke a session they already hold.** The JWT is
+> stateless — `get_current_user` verifies the signature and expiry and never
+> consults the database, and there is no revocation list. A deleted user's
+> existing cookie therefore keeps working until it expires:
+> `jwt_ttl_seconds` defaults to **604800 (7 days)**. During that window they
+> can still reach JWT-only routes such as `GET /api/auth/me` and
+> `GET/PUT /api/settings/defaults`.
+>
+> Their next `POST /api/runs` is worse than a clean rejection: the insert
+> sets `Run.user_id` to a row that no longer exists, which on Postgres raises
+> a foreign-key `IntegrityError` with no handler → **500**. On SQLite (dev)
+> foreign keys aren't enforced, so it instead writes an orphaned run — the
+> two engines diverge here.
+>
+> To cut access immediately, rotate `JWT_SECRET`, which invalidates every
+> outstanding token. Closing this properly would mean checking user existence
+> in `get_current_user` (a query per request) or adding a token-version
+> column; both are out of scope for this change and neither is implemented.
+
 ## Run lifecycle
 
 States and transitions (`status` column on `runs`, also the
@@ -426,6 +492,9 @@ are documented under each endpoint in `/api/docs`.
 | `DELETE` | `/api/settings/api-keys/{env}` | JWT | required | `204` |
 | `GET` | `/api/settings/defaults` | JWT | n/a | `UserDefaults` |
 | `PUT` | `/api/settings/defaults` | JWT | required | `UserDefaults` (partial merge) |
+| `GET` | `/api/users` | JWT (**admin**) | n/a | `UserSummary[]` (never a hash) |
+| `POST` | `/api/users` | JWT (**admin**) | required | `201` + `UserSummary` |
+| `DELETE` | `/api/users/{user_id}` | JWT (**admin**) | required | `204` |
 | `GET` | `/api/health` | none | n/a | `HealthResponse` (`{status, version, db, disk_free_mb, active_run_id, ollama?}`), always HTTP 200 |
 | `GET` | `/api/announcements/` | JWT | n/a | `Announcement[]` (cached proxy) |
 

@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 
 import ProviderApiKeyForm from "@/components/ProviderApiKeyForm";
+import UsersCard from "@/components/UsersCard";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,6 +33,7 @@ import {
   useModels,
   useProviders,
 } from "@/hooks/useCatalog";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useToast } from "@/hooks/use-toast";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -608,10 +610,12 @@ function DefaultsCard() {
 }
 
 export default function Settings() {
+  const isAdmin = useIsAdmin();
   return (
     <div className="container space-y-6 py-8">
       <ApiKeysCard />
       <DefaultsCard />
+      {isAdmin ? <UsersCard /> : null}
     </div>
   );
 }
