@@ -12,6 +12,7 @@ even when Ollama is unreachable. The contract:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -244,3 +245,55 @@ async def test_drain_in_flight_refreshes_awaits_scheduled_task(
     assert task.done(), "drain must not leave the refresh pending"
     assert ollama_models._in_flight_refresh == {}
     assert stats["calls"] == 2, "the drained refresh should have completed"
+
+
+async def test_refresh_scheduled_during_drain_is_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A drain in progress must stop new refreshes being scheduled behind it.
+
+    ``drain_in_flight_refreshes`` snapshots ``_in_flight_refresh`` and then
+    awaits, which yields control. A request handler reaching the
+    stale-while-revalidate branch in that window used to add a task the
+    snapshot never saw — and the unconditional ``_in_flight_refresh.clear()``
+    then discarded the only handle to it. The task kept running untracked
+    against a client ``shutdown_ollama`` closes moments later: precisely the
+    orphaned-task failure this function exists to prevent, merely narrowed.
+
+    Refusing to schedule while draining closes the window instead of shrinking
+    it. Suppression is correct for both callers — process shutdown and test
+    teardown — because in each case there is no future in which the refreshed
+    value would ever be read.
+    """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.example.com/v1")
+
+    from app.services import ollama_models
+
+    started = asyncio.Event()
+
+    async def _blocked_fetch(base_url: str) -> list[str]:
+        started.set()
+        await asyncio.sleep(3600)  # never completes; the drain must cancel it
+        return []
+
+    monkeypatch.setattr(ollama_models, "_fetch_now", _blocked_fetch)
+
+    ollama_models._schedule_background_refresh("https://a.example.com/v1")
+    await started.wait()
+
+    drain = asyncio.create_task(ollama_models.drain_in_flight_refreshes(timeout=0.05))
+    # Yield once so the drain body runs up to its first await.
+    await asyncio.sleep(0)
+
+    ollama_models._schedule_background_refresh("https://b.example.com/v1")
+    assert "https://b.example.com/v1" not in ollama_models._in_flight_refresh, (
+        "a refresh scheduled mid-drain must be suppressed, not orphaned"
+    )
+
+    await drain
+    assert ollama_models._in_flight_refresh == {}
+
+    # The guard must lift afterwards, or every later refresh is silently dead.
+    ollama_models._schedule_background_refresh("https://c.example.com/v1")
+    assert "https://c.example.com/v1" in ollama_models._in_flight_refresh
+    await ollama_models.drain_in_flight_refreshes(timeout=0.05)

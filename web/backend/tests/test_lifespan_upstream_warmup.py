@@ -296,4 +296,39 @@ async def test_shutdown_drains_in_flight_catalog_refresh(monkeypatch) -> None:
     assert task.done(), "in-flight catalog refresh still pending after shutdown"
     assert ollama_models._in_flight_refresh == {}
 
-    release.set()
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_client_even_if_drain_raises(monkeypatch) -> None:
+    """A failing drain must not cost us the connection pool.
+
+    The two cancel blocks in ``shutdown_ollama`` each catch ``Exception`` and
+    log before continuing, but the drain call sat unguarded between them and
+    ``close_client()``. ``drain_in_flight_refreshes`` does not raise today, so
+    this locks the ordering guarantee rather than a current bug: teardown must
+    reach ``close_client()`` no matter what the drain does, otherwise a future
+    change trades one leak (orphaned task) for a worse one (leaked TLS pool).
+    """
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "ollama")
+
+    from app.lifespan_hooks import upstream_warmup
+    from app.services import ollama_models, upstream_http
+
+    async def _boom(*_args, **_kwargs) -> None:
+        raise RuntimeError("drain exploded")
+
+    monkeypatch.setattr(ollama_models, "drain_in_flight_refreshes", _boom)
+
+    upstream_http.get_client()
+    assert upstream_http._client is not None
+
+    await upstream_warmup.shutdown_ollama(app=None)
+
+    # Restore the real drain before the autouse ``_reset_ollama_cache`` fixture
+    # tears down — its teardown awaits this same function, and leaving ``_boom``
+    # installed turns a passing test into an ERROR at teardown.
+    monkeypatch.undo()
+
+    assert upstream_http._client is None, (
+        "a raising drain must not prevent the shared client being closed"
+    )

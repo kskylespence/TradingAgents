@@ -510,14 +510,17 @@ def test_suggested_alternatives_only_curated_and_healthy(
     """Alternatives = curated AND in /v1/models AND not cached-unhealthy.
 
     Fixture exposes (per the brief):
-      * ``glm-5`` (curated, healthy)
+      * ``glm-5.2`` (curated, healthy)
       * ``kimi-k2.6`` (curated, healthy)
       * ``random-model`` (NOT curated)
       * ``nemotron-3-super`` (curated, but probe-unhealthy in cache)
 
     The selected models in this run are both unhealthy so the response
-    body MUST list alternatives. Expected: [``glm-5``, ``kimi-k2.6``]
-    sorted alphabetically, with glm-5 first (curated headline).
+    body MUST list alternatives. Expected: [``glm-5.2``, ``kimi-k2.6``]
+    sorted alphabetically, with glm-5.2 first (curated headline).
+
+    Was ``glm-5`` until the 2026-08-05 snapshot refresh, when Ollama
+    retired it in favour of 5.1/5.2 and it stopped being curated.
     """
     client, _calls = runs_client
     _install_probe_fake(
@@ -531,13 +534,13 @@ def test_suggested_alternatives_only_curated_and_healthy(
                 "payload": {"error": "Internal Server Error"},
             },
             # Healthy curated members:
-            "glm-5": None,
+            "glm-5.2": None,
             "kimi-k2.6": None,
             # Non-curated noise that must NOT appear in alternatives:
             "random-model": None,
         },
         models_listing=[
-            "glm-5",
+            "glm-5.2",
             "kimi-k2.6",
             "nemotron-3-super",
             "random-model",
@@ -574,12 +577,71 @@ def test_suggested_alternatives_only_curated_and_healthy(
     assert "random-model" not in alternatives
     assert "nemotron-3-super" not in alternatives
     # MUST include the two healthy curated models.
-    assert "glm-5" in alternatives
+    assert "glm-5.2" in alternatives
     assert "kimi-k2.6" in alternatives
     # At most 3.
     assert len(alternatives) <= 3
-    # Sorted alphabetically with glm-5 first (curated headline).
-    assert alternatives[0] == "glm-5"
+    # Sorted alphabetically with glm-5.2 first (curated headline).
+    assert alternatives[0] == "glm-5.2"
+
+
+def test_suggested_alternatives_pins_tagged_headline_model(
+    runs_client, monkeypatch
+) -> None:
+    """The headline pin must survive a *tagged* GLM id.
+
+    ``_suggested_alternatives`` builds its candidate list from the live
+    ``/v1/models`` listing, which returns tagged ids
+    (``deepseek-v4-flash:0731``). The pin compares against bare base names,
+    so an exact-string check silently stops firing the moment GLM ships with
+    a tag — and because the result is capped at 3, the headline model doesn't
+    just lose its position, it can fall out of the response entirely once
+    three other curated models sort ahead of it alphabetically.
+
+    The three curated models below that sort alphabetically ahead of
+    ``glm-5.2:cloud`` (``deepseek-v4-flash:0731``, ``deepseek-v4-pro``,
+    ``gemma4:31b``) exist to fill the cap exactly, so the pre-fix code drops
+    the headline model from the response entirely rather than merely demoting
+    it — the failure this guards against, reproduced literally.
+    """
+    client, _calls = runs_client
+    _install_probe_fake(
+        monkeypatch,
+        responses={
+            "broken-quick": {"raise": httpx.ReadTimeout("rip")},
+            "broken-deep": {"raise": httpx.ReadTimeout("rip")},
+            "glm-5.2:cloud": None,
+            "deepseek-v4-flash:0731": None,
+            "deepseek-v4-pro": None,
+            "gemma4:31b": None,
+            "kimi-k2.6": None,
+        },
+        models_listing=[
+            "glm-5.2:cloud",
+            "deepseek-v4-flash:0731",
+            "deepseek-v4-pro",
+            "gemma4:31b",
+            "kimi-k2.6",
+            "broken-quick",
+            "broken-deep",
+        ],
+    )
+
+    resp = _post(
+        client,
+        _build_body(quick_think_llm="broken-quick", deep_think_llm="broken-deep"),
+    )
+
+    assert resp.status_code == 400, resp.text
+    alternatives = resp.json()["detail"]["suggested_alternatives"]
+    # Without the base-name pin this list is the first three alphabetically and
+    # the headline model is absent altogether.
+    assert "glm-5.2:cloud" in alternatives, (
+        "tagged headline model was dropped from the capped list entirely"
+    )
+    assert alternatives[0] == "glm-5.2:cloud", (
+        "tagged headline model must still be pinned first"
+    )
 
 
 def test_probe_cache_dedup(runs_client, monkeypatch) -> None:

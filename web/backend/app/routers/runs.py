@@ -80,16 +80,16 @@ async def _suggested_alternatives() -> list[str]:
 
     Intersect of:
 
-    * The curated cloud catalog snapshot (``CURATED_2026_05``).
+    * The curated cloud catalog snapshot (``CURATED_2026_08``).
     * The currently-cached ``/v1/models`` listing — what the upstream
       account actually has access to.
     * Models NOT cached as unhealthy.
 
     Sorted alphabetically with the newest GLM headline model pinned first
-    when present (``glm-5.2`` → ``glm-5.1`` → ``glm-5``), capped at 3
+    when present (``glm-5.2`` → ``glm-5.1``), capped at 3
     entries. Returning fewer than 3 is fine — the UI handles the empty case.
     """
-    from ..services.ollama_curated import CURATED_2026_05
+    from ..services.ollama_curated import is_curated
     from ..services.ollama_models import (
         cached_probe_unhealthy_models,
         list_ollama_models,
@@ -97,18 +97,31 @@ async def _suggested_alternatives() -> list[str]:
 
     available = set(await list_ollama_models())
     unhealthy = set(cached_probe_unhealthy_models())
+    # Filter what's actually available through ``is_curated`` rather than
+    # intersecting with the snapshot directly. The snapshot holds base names
+    # while ``/v1/models`` returns tagged IDs, so a direct intersection drops
+    # every tagged variant — and a suggestion has to be an ID the user can
+    # actually select, which means the tagged form.
     candidates = sorted(
-        mid for mid in CURATED_2026_05 if mid in available and mid not in unhealthy
+        mid for mid in available if is_curated(mid) and mid not in unhealthy
     )
 
     # Pin the GLM headline model to the front when it survived the filter;
     # prefer the newest release the snapshot knows about.
-    _HEADLINE_PIN_ORDER = ("glm-5.2", "glm-5.1", "glm-5")
+    #
+    # Compare base names, not whole ids: ``candidates`` comes from the live
+    # listing and may be tagged (``glm-5.2:cloud``), while the pins are bare.
+    # An exact match would silently stop firing the moment GLM ships a tag —
+    # and since the result is capped at 3, the headline model would not merely
+    # lose its position but drop out entirely once three other curated models
+    # sort ahead of it.
+    _HEADLINE_PIN_ORDER = ("glm-5.2", "glm-5.1")
     head: list[str] = []
-    for mid in _HEADLINE_PIN_ORDER:
-        if mid in candidates:
-            head.append(mid)
-            candidates.remove(mid)
+    for pin in _HEADLINE_PIN_ORDER:
+        match = next((m for m in candidates if m.split(":", 1)[0] == pin), None)
+        if match is not None:
+            head.append(match)
+            candidates.remove(match)
     return (head + candidates)[:3]
 
 

@@ -242,6 +242,14 @@ def _schedule_background_refresh(base_url: str) -> None:
     Errors inside the background task are swallowed by ``_fetch_now``;
     the task always completes (success or recorded-failure).
     """
+    if _draining:
+        # A drain is settling the outstanding refreshes so the loop can close
+        # (process shutdown, or test teardown). Starting another one here would
+        # slip in behind the drain's snapshot and be orphaned by it. In both
+        # callers there is no future in which this value would be read, so
+        # dropping the refresh is strictly better than leaking a task.
+        return
+
     existing = _in_flight_refresh.get(base_url)
     if existing is not None and not existing.done():
         return
@@ -259,6 +267,22 @@ def _schedule_background_refresh(base_url: str) -> None:
 
 
 _DRAIN_TIMEOUT_SECONDS = 5.0
+
+#: True while ``drain_in_flight_refreshes`` is settling outstanding tasks.
+#: ``_schedule_background_refresh`` refuses to start new work in that window —
+#: without this, a refresh scheduled after the drain's snapshot but before its
+#: ``_in_flight_refresh.clear()`` would keep running untracked, which is the
+#: exact orphaning the drain exists to prevent. A plain bool, not an
+#: ``asyncio.Event``: it carries no loop affinity, so it is safe as module
+#: state under the per-test loops pytest-asyncio creates (see the lazy-lock
+#: convention in ``web/backend/CLAUDE.md``).
+#:
+#: NOT reentrant. Two overlapping drains would have the first one's ``finally``
+#: lower the guard while the second still relies on it, reopening the window.
+#: Unreachable today — the only callers are ``shutdown_ollama`` (once, at
+#: process exit) and the autouse test fixture (once per test, sequential). A
+#: depth counter would need to be added alongside any second concurrent caller.
+_draining = False
 
 
 async def drain_in_flight_refreshes(timeout: float | None = None) -> None:
@@ -280,20 +304,29 @@ async def drain_in_flight_refreshes(timeout: float | None = None) -> None:
     binding it as a default argument, so tests can monkeypatch the module
     constant (same test-seam convention as ``upstream_warmup``).
     """
+    global _draining
+
     limit = _DRAIN_TIMEOUT_SECONDS if timeout is None else timeout
-    tasks = [t for t in _in_flight_refresh.values() if not t.done()]
-    if tasks:
-        _, pending = await asyncio.wait(tasks, timeout=limit)
-        for task in pending:
-            task.cancel()
-        for task in pending:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                log.exception("ollama_models.refresh_drain_failed")
-    _in_flight_refresh.clear()
+    # Raise the guard BEFORE snapshotting, so nothing can be scheduled into the
+    # window between the snapshot and the clear below. Reset in ``finally`` —
+    # leaving it set would silently disable every later refresh.
+    _draining = True
+    try:
+        tasks = [t for t in _in_flight_refresh.values() if not t.done()]
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=limit)
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    log.exception("ollama_models.refresh_drain_failed")
+    finally:
+        _in_flight_refresh.clear()
+        _draining = False
 
 
 # --------------------------------------------------------------------------- #
@@ -458,9 +491,12 @@ def _reset_for_tests() -> None:
     breaker) so breaker state from a previous test doesn't bleed into
     the next one.
     """
-    global _lock, _probe_lock
+    global _lock, _probe_lock, _draining
     _lock = None
     _probe_lock = None
+    # Defensive: a test that dies mid-drain would otherwise leave the guard
+    # raised and silently suppress every refresh in the tests that follow.
+    _draining = False
     _cache.clear()
     _last_attempts.clear()
     _probe_cache.clear()

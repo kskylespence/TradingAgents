@@ -221,7 +221,15 @@ async def shutdown_ollama(app: FastAPI) -> None:
     # in-flight request.
     from app.services import ollama_models
 
-    await ollama_models.drain_in_flight_refreshes()
+    # Guarded like the two cancel blocks above: teardown must reach
+    # ``close_client()`` regardless. ``drain_in_flight_refreshes`` does not
+    # raise today, so this protects the ordering guarantee rather than a
+    # current bug — without it a future change would trade one leak (an
+    # orphaned task) for a worse one (the TLS pool never closed).
+    try:
+        await ollama_models.drain_in_flight_refreshes()
+    except Exception:  # noqa: BLE001 — log but proceed to client close
+        log.exception("upstream_warmup.refresh_drain_failed")
 
     # Lazy import so a broken ``upstream_http`` doesn't prevent the rest
     # of shutdown from running. ``close_client`` is itself safe to call

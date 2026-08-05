@@ -16,7 +16,7 @@
 │                                                                    │
 │   middleware/        security_headers · csrf                       │
 │   routers/           auth · catalog · runs · history · settings ·  │
-│                      health · announcements                        │
+│                      users · health · announcements                │
 │   lifespan_hooks/    crash_recovery · disk_pruner                  │
 │   services/          run_service · event_bus · env_inject ·        │
 │                      rate_limit · announcements · disk_pruner ·    │
@@ -29,10 +29,10 @@
            ▼                              ▼
 ┌──────────────────────────┐   ┌──────────────────────────────────┐
 │  TradingAgentsGraph      │   │  Postgres (Coolify / Neon) / SQLite│
-│  (the existing engine,   │   │  runs · run_events · api_keys ·    │
-│   checkpoint-enabled for │   │  user_defaults · login_attempts    │
-│   crash resume)          │   └──────────────────────────────────┘
-└──────────┬───────────────┘
+│  (the existing engine,   │   │  users · runs · run_events ·       │
+│   checkpoint-enabled for │   │  api_keys · user_defaults ·        │
+│   crash resume)          │   │  login_attempts                    │
+└──────────┬───────────────┘   └──────────────────────────────────┘
            ▼
    /data/tradingagents/   (Coolify persistent volume)
    ├── logs/<ticker>/     reports + JSON intermediates
@@ -91,8 +91,8 @@ Drop a file in the right place and it wires itself.
 - `services/disk_pruner.py` — background retention sweep for reports and checkpoints.
 - `services/crash_recovery.py` — on-boot pass that flips orphan `running` runs to `interrupted`.
 - `services/upstream_http.py` (**0.2.5+hf.4**) — shared resilient HTTP client for every outbound call to Ollama. One module-singleton `httpx.AsyncClient` with HTTP/2, `Limits()`, and `Timeout(connect=10, read=15, write=10, pool=10)`. Layered with `tenacity` retry (exponential jitter on transient transport errors + 429/5xx), `Retry-After` header honouring (integer-seconds OR HTTP-date per RFC 7231 §7.1.3), and a `circuitbreaker.CircuitBreaker` that opens after 5 consecutive failures and half-opens after 30s. Public surface: `request(method, url, ...)`, `circuit_state()`, `close_client()`. Built specifically to absorb Ollama Cloud's documented instability (`ollama/ollama#14673`, `#15419`, `#15910`, `#13770`) without surfacing transients to the user. The run-time LLM call path (`tradingagents.llm_clients.openai_client`) does NOT go through this — it has its own SDK-level retry budget; this module is dedicated to the catalog/health/probe seam.
-- `services/ollama_models.py` — live discovery of Ollama / Ollama Cloud models via `GET {OLLAMA_BASE_URL}/models`, with 5-minute TTL cache and never-raises contract. Routes through `upstream_http.request`. State per `base_url`: `_cache` (only updated on success — the catalog's last-good fallback) and `_last_attempts` (a `deque[3]` of attempt outcomes driving the 2-of-3 hysteresis on `last_probe_status()` so single transients don't flap). `list_ollama_models()` uses stale-while-revalidate: on cache expiry it returns the stale list immediately and schedules a background refresh task. Also exposes `recent_attempts()` for the health endpoint and `probe_model_liveness(model_id)` for the pre-flight probe (Layer 1).
-- `lifespan_hooks/upstream_warmup.py` (**0.2.5+hf.4**) — on startup, spawns a fire-and-forget `list_ollama_models()` call (20s timeout) so the singleton client's DNS+TLS handshake is paid before the first user request. Also spawns a refresh loop every 240s (just before the 5-min cache TTL) so the cache never goes cold. On shutdown: cancels BOTH the warmup and refresh tasks, then `upstream_http.close_client()`.
+- `services/ollama_models.py` — live discovery of Ollama / Ollama Cloud models via `GET {OLLAMA_BASE_URL}/models`, with 5-minute TTL cache and never-raises contract. Routes through `upstream_http.request`. State per `base_url`: `_cache` (only updated on success — the catalog's last-good fallback) and `_last_attempts` (a `deque[3]` of attempt outcomes driving the 2-of-3 hysteresis on `last_probe_status()` so single transients don't flap). `list_ollama_models()` uses stale-while-revalidate: on cache expiry it returns the stale list immediately and schedules a background refresh task, tracked in `_in_flight_refresh`. Those tasks are fire-and-forget, so `drain_in_flight_refreshes()` settles them — a bounded wait, then cancel-and-await — and `shutdown_ollama` calls it *before* `upstream_http.close_client()`, since the refreshes borrow that client. A `_draining` flag makes `_schedule_background_refresh` a no-op for the duration, so nothing can be scheduled into the window between the drain's snapshot and its clear. Also exposes `recent_attempts()` for the health endpoint and `probe_model_liveness(model_id)` for the pre-flight probe (Layer 1).
+- `lifespan_hooks/upstream_warmup.py` (**0.2.5+hf.4**) — on startup, spawns a fire-and-forget `list_ollama_models()` call (20s timeout) so the singleton client's DNS+TLS handshake is paid before the first user request. Also spawns a refresh loop every 240s (just before the 5-min cache TTL) so the cache never goes cold. On shutdown: cancels BOTH the warmup and refresh tasks, then drains any in-flight stale-while-revalidate refresh via `ollama_models.drain_in_flight_refreshes()`, then `upstream_http.close_client()`. That middle step is not optional ordering — the refreshes borrow the client being closed, and each of the three steps is individually wrapped so a failure in one still reaches the client close.
 
 ## Run lifecycle walkthrough
 
@@ -244,6 +244,7 @@ graph starts from scratch, not from a checkpoint. Same
 
 | What | Where | Lifecycle |
 |---|---|---|
+| User accounts | Postgres `users` | One row per login. Bootstrap admin (id `…0001`) re-upserted from env every startup; others created/deleted via `/api/users`. A user owning runs cannot be deleted (FK is `RESTRICT`) |
 | Run metadata | Postgres `runs` | One row per run, never deleted (history queries) |
 | Event log | Postgres `run_events` | One row per published event, cascade-deletes with the run |
 | API keys | Postgres `api_keys` | One row per provider env-var, Fernet-encrypted |

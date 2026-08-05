@@ -53,6 +53,56 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **False "not curated" warnings on every Ollama model (web).** `is_curated`
+  compared the full model ID against the snapshot, but `ollama.com/search?c=cloud`
+  lists *base* names (`deepseek-v4-flash`) while `/v1/models` returns *tagged*
+  IDs (`deepseek-v4-flash:0731`). Exact matching therefore badged models that
+  were curated all along — `deepseek-v4-flash` was already in the snapshot and
+  still failed to match. Matching now strips the tag, which also means a routine
+  upstream tag rotation (`:0731` → `:0801`) can no longer make a known-good model
+  start showing a reliability warning it never earned. A tag cannot launder a
+  non-curated model: `qwen3-coder:480b` still reduces to `qwen3-coder` and stays
+  flagged.
+
+- **Stale curated snapshot (web).** Refreshed to `CURATED_2026_08` from the live
+  catalog on 2026-08-05; the previous snapshot predated a full generation of
+  releases (`kimi-k3`, `minimax-m3`, `gemma4`, `nemotron-3-ultra`,
+  `deepseek-v4-*`), so 7 of the 18 models a typical account can reach were
+  warned about despite being curated. Combined with the tag fix, a current
+  account now sees zero false badges. `_suggested_alternatives` filters the
+  available list through `is_curated` instead of intersecting the snapshot
+  directly — the old intersection dropped every tagged variant, and a suggestion
+  has to be an ID the user can actually select. Note the refresh tripped the
+  `glm-5` assertion in `test_catalog_curated_flag.py`, which is the guard working
+  as designed: Ollama retired `glm-5` in favour of 5.1/5.2.
+
+- **Headline model dropped from run-error suggestions when tagged (web).**
+  `_suggested_alternatives` now builds its candidate list from the live
+  `/v1/models` listing, which returns tagged ids, but the GLM headline pin
+  still compared bare base names. The pin silently stops firing the moment GLM
+  ships with a tag — and because the list is capped at three, the headline
+  model doesn't merely lose its position, it falls out of the response once
+  three other curated models sort ahead of it alphabetically. The pin now
+  compares base names like the rest of the path.
+
+- **Refresh scheduled mid-drain was orphaned (web).**
+  `drain_in_flight_refreshes` snapshots the in-flight tasks and then awaits,
+  which yields control; a request reaching the stale-while-revalidate branch in
+  that window added a task the snapshot never saw, and the unconditional
+  `_in_flight_refresh.clear()` then discarded the only handle to it — leaving it
+  running untracked against a client that shutdown closes moments later, i.e.
+  the very orphaning the drain exists to prevent, merely narrowed. A `_draining`
+  guard now makes `_schedule_background_refresh` a no-op for the duration, which
+  closes the window rather than shrinking it; both callers (process shutdown and
+  test teardown) have no future in which the refreshed value would be read. The
+  drain also clears and lowers the guard in a `finally`, so a failure part-way
+  through cannot wedge every later refresh.
+
+- **Shutdown could skip closing the HTTP client (web).** The drain call sat
+  unguarded between two `try`/`except` blocks in `shutdown_ollama`, so a future
+  change that made it raise would have traded an orphaned task for a leaked TLS
+  connection pool. Wrapped to match its neighbours.
+
 - **Orphaned catalog refreshes on shutdown (web).** `ollama_models` schedules
   stale-while-revalidate refreshes with a fire-and-forget `asyncio.create_task`,
   and nothing ever awaited them. `shutdown_ollama` cancelled the two tasks it

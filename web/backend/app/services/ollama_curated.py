@@ -2,9 +2,9 @@
 
 What this is
 ============
-``CURATED_2026_05`` is a frozen membership set of model IDs that
-appeared in Ollama's official curated cloud catalog at
-https://ollama.com/search?c=cloud on 2026-05-23. The catalog endpoint
+``CURATED_2026_08`` is a frozen membership set of model **base names**
+that appeared in Ollama's official curated cloud catalog at
+https://ollama.com/search?c=cloud on 2026-08-05. The catalog endpoint
 flags every Ollama model with ``curated: bool`` derived from this set
 so the frontend can sort safer-known options first and badge the rest.
 
@@ -30,17 +30,24 @@ The snapshot is a point-in-time copy, not a live mirror. Ollama doesn't
 publish a stable manifest of the curated set and we don't want a
 runtime dependency on scraping their search page. Refresh policy:
 
-* **Cadence:** quarterly review. The next due date is 2026-08-23.
+* **Cadence:** quarterly review. The next due date is 2026-11-05.
 * **Triggered:** also bump immediately when a user reports a new
   curated model isn't being prioritised, or when Ollama publishes a new
   base model.
-* **Process:** load https://ollama.com/search?c=cloud, copy the model
-  IDs verbatim into ``CURATED_2026_05``, rename the constant to the
-  new date, and bump the snapshot date in the docstring above. The
+* **Process:** load https://ollama.com/search?c=cloud, copy the **base
+  names** into ``CURATED_2026_08``, rename the constant to the new date,
+  and bump the snapshot date in the docstring above. Do NOT paste tagged
+  IDs from ``/v1/models`` — ``is_curated`` strips the tag before the
+  lookup, so a tagged entry is dead weight that can never match. The
   tests in ``tests/test_catalog_curated_flag.py`` lock the contract
-  (specifically that ``glm-5`` stays curated and ``kimi-k2-thinking``
-  stays not-curated), so a refresh that drops a known-good model will
-  fail loudly.
+  (``kimi-k2-thinking`` stays not-curated, tagged variants of a curated
+  base resolve to True), so a refresh that drops a known-good model
+  fails loudly.
+
+  Expect the guard to fire on genuine upstream retirements too — the
+  2026-08-05 refresh tripped it because ``glm-5`` had been superseded by
+  5.1/5.2 and dropped from the catalog. That is the test doing its job,
+  not a regression; retire the assertion along with the model.
 
 Why a frozenset
 ===============
@@ -51,51 +58,42 @@ mid-request. Mutability would also defeat the snapshot semantics.
 
 from __future__ import annotations
 
-#: Snapshot of https://ollama.com/search?c=cloud taken 2026-05-23.
+#: Snapshot of https://ollama.com/search?c=cloud taken 2026-08-05.
+#:
+#: **Base names only — never tags.** ``is_curated`` strips the ``:tag``
+#: before the lookup, so ``deepseek-v4-flash`` covers ``:0731`` and
+#: ``:preview`` alike. Adding a tagged entry here is harmless but dead
+#: weight; it can never match.
 #:
 #: Order is irrelevant (set semantics) but kept roughly grouped by
 #: model family for readability when reviewing the next refresh diff.
-CURATED_2026_05: frozenset[str] = frozenset(
+CURATED_2026_08: frozenset[str] = frozenset(
     {
         # Z.AI GLM family
         "glm-5.2",
-        "glm-5",
         "glm-5.1",
         # Moonshot Kimi family
+        "kimi-k3",
+        "kimi-k2.7-code",
         "kimi-k2.6",
-        "kimi-k2.5",
-        "kimi-k2:1t",
         # Alibaba Qwen family
-        "qwen3-next:80b",
-        "qwen3-coder-next",
-        "qwen3.5:397b",
-        "qwen3-vl:235b",
-        "qwen3-vl:235b-instruct",
+        "qwen3.5",
         # DeepSeek family
-        "deepseek-v3.2",
-        "deepseek-v4-flash",
         "deepseek-v4-pro",
+        "deepseek-v4-flash",
         # OpenAI OSS family
-        "gpt-oss:120b",
-        "gpt-oss:20b",
+        "gpt-oss",
         # NVIDIA Nemotron family
+        "nemotron-3-ultra",
         "nemotron-3-super",
-        "nemotron-3-nano:30b",
+        "nemotron-3-nano",
         # MiniMax family
-        "minimax-m2",
-        "minimax-m2.1",
-        "minimax-m2.5",
+        "minimax-m3",
         "minimax-m2.7",
-        # Google Gemini
-        "gemini-3-flash-preview",
+        # Google Gemma
+        "gemma4",
         # Mistral family
-        "devstral-2:123b",
-        "devstral-small-2:24b",
-        "mistral-large-3:675b",
-        "ministral-3:8b",
-        "ministral-3:14b",
-        # Cogito family
-        "cogito-2.1:671b",
+        "mistral-large-3",
     }
 )
 
@@ -114,10 +112,25 @@ def is_curated(model_id: str) -> bool:
     Empty / falsy IDs also return False — they shouldn't occur (the
     upstream client filters non-string IDs), but defensive zero-value
     handling keeps this safe to call from any context.
+
+    Matching is on the **base name** — everything before the first ``:``.
+    The upstream search page lists bases (``deepseek-v4-flash``) while
+    ``/v1/models`` returns tags (``deepseek-v4-flash:0731``), so an exact
+    match badged models that were curated all along. Ignoring the tag also
+    means a routine tag rotation (``:0731`` → ``:0801``) can't make a
+    known-good model start showing a reliability warning it never earned.
+
+    A tag cannot launder a non-curated model: ``qwen3-coder:480b`` reduces
+    to ``qwen3-coder``, which is absent from the snapshot and stays False.
     """
     if not model_id:
         return False
-    return model_id in CURATED_2026_05
+    base = model_id.split(":", 1)[0]
+    if not base:
+        # ``":latest"`` and friends — an empty base must not be treated as
+        # a match against anything.
+        return False
+    return base in CURATED_2026_08
 
 
-__all__ = ["CURATED_2026_05", "is_curated"]
+__all__ = ["CURATED_2026_08", "is_curated"]

@@ -60,14 +60,44 @@ def test_is_curated_function() -> None:
     """
     from app.services.ollama_curated import is_curated
 
-    # A known-curated model (in the 2026-05-23 snapshot).
+    # A known-curated model (in the snapshot).
     assert is_curated("glm-5.2") is True
-    assert is_curated("glm-5") is True
+    assert is_curated("glm-5.1") is True
     # A known-deprioritised model (ollama/ollama#15453).
     assert is_curated("kimi-k2-thinking") is False
     # Empty string — defensive: a malformed upstream entry shouldn't
     # accidentally look curated.
     assert is_curated("") is False
+
+
+def test_is_curated_matches_on_base_name_ignoring_tag() -> None:
+    """A size/date tag must not defeat the curated lookup.
+
+    ``https://ollama.com/search?c=cloud`` lists *base* names
+    (``deepseek-v4-flash``) while ``/v1/models`` hands back *tagged* IDs
+    (``deepseek-v4-flash:0731``). An exact-string membership test therefore
+    badged models that were curated all along — ``deepseek-v4-flash`` was
+    already in the snapshot and still failed to match.
+
+    Matching on the part before ``:`` also survives tag rotation: when
+    ``deepseek-v4-flash:0731`` becomes ``:0801`` upstream, the model does not
+    silently start showing a reliability warning it never earned.
+    """
+    from app.services.ollama_curated import is_curated
+
+    # Date tags, preview tags, and size tags all resolve to their base.
+    assert is_curated("deepseek-v4-flash:0731") is True
+    assert is_curated("deepseek-v4-flash:preview") is True
+    assert is_curated("gemma4:31b") is True
+    assert is_curated("nemotron-3-nano:30b") is True
+
+    # A tag must NOT launder a non-curated base name into looking curated.
+    assert is_curated("kimi-k2-thinking:latest") is False
+    assert is_curated("qwen3-coder:480b") is False
+
+    # Degenerate forms stay non-curated rather than matching an empty base.
+    assert is_curated(":latest") is False
+    assert is_curated(":") is False
 
 
 # --------------------------------------------------------------------------- #
@@ -78,8 +108,13 @@ def test_is_curated_function() -> None:
 def test_curated_model_marked_true(
     authed_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Models listed in the curated snapshot are flagged ``curated: true``."""
-    install_fake_httpx_ollama(monkeypatch, ids=["glm-5"])
+    """Models listed in the curated snapshot are flagged ``curated: true``.
+
+    Uses a *tagged* ID on purpose: ``/v1/models`` returns tags while the
+    snapshot stores base names, so this doubles as end-to-end coverage that
+    the tag-stripping in ``is_curated`` reaches the HTTP layer.
+    """
+    install_fake_httpx_ollama(monkeypatch, ids=["deepseek-v4-flash:0731"])
 
     resp = authed_client.get(
         "/api/catalog/models", params={"provider": "ollama", "mode": "quick"}
@@ -87,7 +122,7 @@ def test_curated_model_marked_true(
     assert resp.status_code == 200
     body = resp.json()
     assert len(body) == 1
-    assert body[0]["id"] == "glm-5"
+    assert body[0]["id"] == "deepseek-v4-flash:0731"
     assert body[0]["curated"] is True
 
 

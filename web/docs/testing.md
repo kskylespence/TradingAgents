@@ -35,10 +35,23 @@ asyncio_mode = "auto"
 markers = ["unit", "integration", "smoke"]
 ```
 
-`-p no:postgresql` disables the `pytest-postgresql` plugin by default;
-on Windows it tries to import psycopg's libpq at collection time and
-fails without a system libpq install. Tests that need real Postgres
-re-enable it via their own conftest.
+`-p no:postgresql` disables the `pytest-postgresql` plugin by default.
+The plugin auto-loads via setuptools entry points — even for tests that
+never touch Postgres — and imports `psycopg`, which needs libpq at
+*collection* time. Any host without a system libpq aborts the whole
+session before a single test runs; that is Windows, and equally macOS
+without Homebrew. The `dev` extra therefore also declares
+`psycopg[binary]`, which vendors libpq into the wheel, so neither the
+backend suite nor the repo-root suite depends on a system install.
+Tests that need real Postgres re-enable the plugin via their own conftest.
+
+`pytest-asyncio` is pinned `<1.0` in `web/backend/pyproject.toml`. The
+1.x per-test loop and fixture-finalisation changes break
+`test_rate_limit.py` (`RuntimeError: There is no current event loop in
+thread 'MainThread'`) and three `test_runs_preflight_probe.py` tests.
+The `pytest` major version is not the trigger — 8.x and 9.x behave
+identically. Don't lift the cap without migrating to the 1.x loop-scope
+API first.
 
 ```bash
 cd web/backend
@@ -108,18 +121,54 @@ Auth itself is covered by `tests/test_auth.py`. For every other router
 test, stub the dep:
 
 ```python
+from uuid import UUID
+
 from app.auth import get_current_user
 from app.schemas import AuthUser
 
 def _override_user() -> AuthUser:
-    return AuthUser(username="test")
+    return AuthUser(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        username="test",
+        role="admin",
+    )
 
 app.dependency_overrides[get_current_user] = _override_user
 ```
 
+All three fields are required — `AuthUser` gained `id` and `role` with the
+multi-user change, so a bare `AuthUser(username="test")` now raises
+`ValidationError`. `tests/helpers.py:make_auth_user` builds one for you with
+sensible defaults; prefer it over hand-rolling.
+
 Pattern lifted from `tests/test_runs_smoke.py` and `tests/test_history.py`.
 Always pop the override in a `finally:` so it doesn't leak to other
 tests.
+
+### Testing admin-gated routes
+
+For routes behind `Depends(require_admin)`, override **`get_current_user`,
+not `require_admin`**:
+
+```python
+app.dependency_overrides[get_current_user] = lambda: make_auth_user(role="user")
+assert client.get("/api/users").status_code == 403
+```
+
+`dependency_overrides` substitutes a dependency *anywhere it appears in the
+tree*, including nested inside `require_admin`. So overriding the inner one
+leaves the real guard running and the 403 is genuinely produced by
+production code. Overriding `require_admin` itself would replace the thing
+under test with a stub, and the assertion would prove nothing.
+
+Two refinements worth copying from `tests/test_users_admin.py`:
+
+- **Aim the forbidden request at a target that would otherwise succeed.** Its
+  non-admin `DELETE` probe targets an id the handler would act on, so a
+  bypass would show up as a 2xx/4xx *other than* 403 — the assertion is
+  load-bearing rather than incidentally true.
+- **Drop the override entirely** (`dependency_overrides.pop`) to exercise the
+  real cookie-reading `get_current_user` and assert the 401 path.
 
 ## CSRF disable in tests
 
@@ -194,16 +243,33 @@ backend conftest does this for you via an autouse fixture:
 ```python
 # Already in web/backend/tests/conftest.py — no per-file boilerplate needed
 @pytest.fixture(autouse=True)
-def _reset_ollama_cache():
+async def _reset_ollama_cache():
     from app.services import ollama_models
     ollama_models._reset_for_tests()
     yield
+    await ollama_models.drain_in_flight_refreshes()
     ollama_models._reset_for_tests()
 ```
 
 `_reset_for_tests()` nulls the lock AND clears both dicts. If you add
 a new service module with its own caches, mirror the pattern: expose
 a `_reset_for_tests()`, register it in conftest as autouse.
+
+**The fixture is `async` on purpose.** `list_ollama_models()`'s
+stale-while-revalidate path fire-and-forgets an `asyncio.Task`, and a
+sync fixture can only call `task.cancel()` — which merely *requests*
+cancellation, leaving the task in state `cancelling` until the loop
+runs it again. pytest-asyncio closes the per-test loop first, so the
+task dies pending and the test reports `ERROR at teardown` /
+`RuntimeError: Event loop is closed`. Only an `async` teardown can
+`await` the task to completion. An autouse async fixture is safe for
+this suite's sync tests too (verified against `test_runs_smoke.py`).
+
+If you write a test that monkeypatches `drain_in_flight_refreshes`
+itself, call `monkeypatch.undo()` before the test ends — this fixture's
+teardown awaits that same function, and a patched-in exception turns a
+passing test into an ERROR at teardown. See
+`test_lifespan_upstream_warmup.py::test_shutdown_closes_client_even_if_drain_raises`.
 
 ## Mocking outbound HTTP — `install_fake_httpx_ollama`
 
