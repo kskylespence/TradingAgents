@@ -20,6 +20,14 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+### Removed
+
+### Security
+
+## [0.3.1+hf.5] — 2026-08-05
+
+### Fixed
+
 - **404 on refresh or direct link to any client-side route (web).** Loading
   `/new`, `/settings`, `/history`, or `/runs/<id>` directly — a refresh, a
   bookmark, a shared link — returned `{"detail":"Not Found"}` instead of the
@@ -37,10 +45,6 @@ for the per-deploy cut workflow.
   JSON parse failure in the client), and paths with a dotted final segment
   like `/assets/main.js` still 404 (HTML there would surface as a MIME-type
   error instead of the actual bad asset path).
-
-### Removed
-
-### Security
 
 ## [0.3.1+hf.4] — 2026-08-05
 
@@ -864,6 +868,7 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...HEAD
+[0.3.1+hf.5]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...v0.3.1-hf.5
 [0.3.1+hf.4]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1...v0.3.1-hf.4
 [0.2.5+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.2.5...v0.2.5-hf.1
