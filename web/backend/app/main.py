@@ -24,9 +24,9 @@ from . import (
     routers as routers_registry,
 )
 from .config import get_settings
-from .spa import SPAStaticFiles
 from .db import dispose_engine
 from .logging_config import configure_logging
+from .spa import SPAStaticFiles
 
 # --- Router auto-discovery ---
 # `app.routers` auto-imports every submodule on package load (see

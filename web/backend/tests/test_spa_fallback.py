@@ -10,10 +10,9 @@ These tests build their own static directory rather than using
 """
 
 import pytest
+from app.spa import SPAStaticFiles
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from app.spa import SPAStaticFiles
 
 
 @pytest.fixture
@@ -85,9 +84,8 @@ def test_app_mounts_spa_static_files():
     Without this the class above is dead code — the fallback only reaches
     production through the mount in `app/main.py`.
     """
-    from starlette.routing import Mount
-
     from app.main import create_app
+    from starlette.routing import Mount
 
     app = create_app()
     static_mounts = [
