@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from . import (
     lifespan_hooks as lifespan_registry,
@@ -25,6 +24,7 @@ from . import (
     routers as routers_registry,
 )
 from .config import get_settings
+from .spa import SPAStaticFiles
 from .db import dispose_engine
 from .logging_config import configure_logging
 
@@ -96,12 +96,13 @@ def create_app() -> FastAPI:
 
     # Static fallback: the React build is copied to app/static at
     # image-build time. Mount LAST so /api/* takes precedence. `html=True`
-    # makes StaticFiles serve `index.html` on directory hits (SPA needs
-    # this for client-side routing).
+    # serves `index.html` on directory hits; `SPAStaticFiles` adds the
+    # history fallback that client-side routing actually needs, so a hard
+    # load of `/new` boots the SPA instead of 404ing. See `app/spa.py`.
     if settings.static_dir.exists():
         app.mount(
             "/",
-            StaticFiles(directory=str(settings.static_dir), html=True),
+            SPAStaticFiles(directory=str(settings.static_dir), html=True),
             name="static",
         )
 

@@ -20,6 +20,24 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **404 on refresh or direct link to any client-side route (web).** Loading
+  `/new`, `/settings`, `/history`, or `/runs/<id>` directly — a refresh, a
+  bookmark, a shared link — returned `{"detail":"Not Found"}` instead of the
+  app, surfacing in the console as
+  `new:1 Failed to load resource: the server responded with a status of 404`.
+  The static mount used `StaticFiles(html=True)` on the assumption that the
+  flag covers client-side routing; it does not. `html=True` only serves
+  `index.html` on *directory* hits and `404.html` on misses — it never
+  rewrites an unknown path to the SPA shell. In-app navigation hid the bug
+  completely, because React Router handles those transitions client-side and
+  never asks the server, so only a hard load could trigger it. The new
+  `SPAStaticFiles` in `app/spa.py` adds the missing history fallback and
+  deliberately excludes two cases so it cannot mask real errors: `/api/*`
+  still 404s as JSON (HTML there would turn an API 404 into a confusing
+  JSON parse failure in the client), and paths with a dotted final segment
+  like `/assets/main.js` still 404 (HTML there would surface as a MIME-type
+  error instead of the actual bad asset path).
+
 ### Removed
 
 ### Security
