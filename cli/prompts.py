@@ -181,6 +181,53 @@ def _fetch_openrouter_models() -> list[tuple[str, str]]:
         return []
 
 
+def _fetch_ollama_models(base_url: str) -> list[str]:
+    """Model IDs the Ollama endpoint serves (``GET {base_url}/models``).
+
+    The fork lists no static Ollama models: local tags and Ollama Cloud IDs
+    differ, so the endpoint's own list is the only reliable one (the web
+    catalog uses it too). Sends ``OLLAMA_API_KEY`` as a bearer token when set
+    (Ollama Cloud). Returns [] when the endpoint cannot be read.
+    """
+    import requests
+
+    api_key = os.environ.get("OLLAMA_API_KEY", "").strip()
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = requests.get(f"{base_url.rstrip('/')}/models", headers=headers, timeout=10)
+        resp.raise_for_status()
+        return [m["id"] for m in resp.json().get("data", []) if m.get("id")]
+    except Exception as e:
+        console.print(f"\n[yellow]Could not fetch Ollama models from {base_url}: {e}[/yellow]")
+        return []
+
+
+def select_ollama_model(mode: str, default=None) -> str:
+    """Pick one of the Ollama endpoint's models, or type an ID if it is unreachable."""
+    models = _fetch_ollama_models(get_ollama_base_url())
+    if not models:
+        return _require_text(
+            f"Enter Ollama model ID ({mode}-thinking), e.g. glm-5.3:",
+            "Please enter a model ID.",
+        )
+
+    choice = questionary.select(
+        f"Select Your [{mode.title()}-Thinking] Ollama Model:",
+        choices=[questionary.Choice(mid, value=mid) for mid in models],
+        default=default if default in models else None,
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style([
+            ("selected", "fg:magenta noinherit"),
+            ("highlighted", "fg:magenta noinherit"),
+            ("pointer", "fg:magenta noinherit"),
+        ]),
+    ).ask()
+    if choice is None:
+        console.print(f"\n[red]No {mode} thinking llm engine selected. Exiting...[/red]")
+        exit(1)
+    return choice
+
+
 def _require_text(message: str, hint: str) -> str:
     """Prompt for a required value; exit cleanly if the user cancels.
 
@@ -248,6 +295,9 @@ def _select_model(provider: str, mode: str, default=None) -> str:
     """Select a model for the given provider and mode (quick/deep)."""
     if provider.lower() == "openrouter":
         return select_openrouter_model(mode)
+
+    if provider.lower() == "ollama":
+        return select_ollama_model(mode, default)
 
     if provider.lower() == "azure":
         return _require_text(

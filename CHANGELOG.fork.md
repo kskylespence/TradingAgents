@@ -54,6 +54,13 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **Choosing Ollama in the interactive CLI crashed with `KeyError: 'ollama'`.**
+  The fork removed the static Ollama model list (local tags 404'd against
+  Ollama Cloud; the web discovers models from the endpoint), but the CLI
+  model picker still looked Ollama up in it. The CLI now lists the
+  configured endpoint's own models (`GET {OLLAMA_BASE_URL}/models`, with
+  `OLLAMA_API_KEY` as a bearer token when set) and falls back to typing a
+  model ID when the endpoint cannot be reached.
 - **"Resume" on an interrupted web run started over instead of resuming.**
   `resume_run` counted on the engine's checkpoint saver, but the web engine
   streamed the plain compiled graph and never opened a checkpoint, so a
