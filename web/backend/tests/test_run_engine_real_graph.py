@@ -154,16 +154,19 @@ def _logged_ratings() -> list[str]:
 
 
 @pytest.mark.unit
-def test_no_network_fixture_blocks_price_fetches(no_network):
+def test_no_network_fixture_blocks_price_fetches(engine):
     """The tests below are only offline if this holds: settlement's price
-    fetch (yfinance over curl_cffi) must come back empty, not with real bars."""
+    fetch (yfinance over curl_cffi) must not return real bars. It may raise
+    (the data layer reports an unreachable vendor as NoMarketDataError) or
+    come back empty. ``engine`` points the OHLCV cache at tmp_path, so a
+    developer's ~/.tradingagents cache cannot answer instead of the network."""
     from tradingagents.graph.settlement import get_closes
 
     try:
         bars = get_closes("NVDA", "2026-01-08", "2026-01-22")
-    except OSError:
+    except Exception:
         return
-    assert len(bars) == 0
+    assert len(bars) == 0, f"got {len(bars)} real price bars: the network block leaked"
 
 
 @pytest.mark.unit

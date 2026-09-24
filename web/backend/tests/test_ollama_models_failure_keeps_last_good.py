@@ -77,14 +77,21 @@ def _install_scripted_client(
 def _expire_cache() -> None:
     """Force the next call to bypass the TTL cache.
 
-    The service caches by `base_url`; rewriting the cache entry to an
-    ancient timestamp is the cleanest way to simulate "TTL elapsed"
+    The service caches by `base_url`; rewriting the cache entry's timestamp
+    to just past the TTL is the cleanest way to simulate "TTL elapsed"
     without sleeping or monkeypatching `time.monotonic`.
+
+    Relative to now, not 0.0: time.monotonic() counts from boot on Linux, so
+    on a CI runner started under 5 minutes ago a 0.0 timestamp was still
+    "fresh" and no refresh was scheduled.
     """
+    import time
+
     from app.services import ollama_models
 
+    expired = time.monotonic() - ollama_models._TTL_SECONDS - 1.0
     for key, (_ts, models) in list(ollama_models._cache.items()):
-        ollama_models._cache[key] = (0.0, models)
+        ollama_models._cache[key] = (expired, models)
 
 
 # --------------------------------------------------------------------------- #

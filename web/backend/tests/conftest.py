@@ -30,6 +30,37 @@ collect_ignore_glob: list[str] = []
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """No-op hook — placeholder kept so downstream conftests can append."""
 
+
+def _isolate_from_developer_env() -> None:
+    """Keep a developer's .env and shell out of the suite (as the root conftest does).
+
+    ``tradingagents`` runs ``load_dotenv(find_dotenv(usecwd=True))`` on
+    import, which walks *up* from the working directory — a checkout's
+    git-ignored .env, or the one above a worktree, gets loaded. Its values
+    then decided what the suite asserted on: a real ``OLLAMA_BASE_URL``
+    made catalog tests fetch the live Ollama Cloud model list, and a real
+    ``DATA_DIR`` sent test reports into the developer's data directory.
+    CI has neither, so those tests passed locally and failed there.
+
+    Setting a name to "" keeps load_dotenv from filling it, and the code
+    reads blank as unset. DATA_DIR gets a throwaway directory. Tests that
+    need a value set their own with monkeypatch.
+    """
+    import tempfile
+
+    from dotenv import dotenv_values, find_dotenv
+
+    names = set(os.environ)
+    for filename in (".env", ".env.enterprise"):
+        names |= set(dotenv_values(find_dotenv(filename, usecwd=True)))
+    for name in names:
+        if name.startswith(("TRADINGAGENTS_", "OLLAMA_")):
+            os.environ[name] = ""
+    os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="ta-backend-tests-")
+
+
+_isolate_from_developer_env()
+
 # --- Pre-import env setup -------------------------------------------------- #
 # These MUST be set before any `from app.config import ...` import that
 # pydantic-settings will snapshot. They are deliberately set at import

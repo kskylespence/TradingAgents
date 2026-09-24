@@ -315,8 +315,20 @@ def test_delete_unknown_env_is_rejected(settings_client: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_get_defaults_returns_default_shape(settings_client: TestClient) -> None:
-    """With no row present, returns lite VPS-friendly schema defaults."""
+def test_get_defaults_returns_default_shape(settings_client: TestClient, monkeypatch) -> None:
+    """With no row present, returns lite VPS-friendly schema defaults.
+
+    GET drops a saved model the live catalog does not list, so the catalog
+    is faked with the two defaults in it. Without the fake, the test only
+    passed where a developer .env pointed OLLAMA_BASE_URL at the real
+    Ollama Cloud (a live network call); in CI the models were dropped.
+    """
+    from app.schemas import DEFAULT_DEEP_MODEL, DEFAULT_QUICK_MODEL
+
+    from tests.conftest import install_fake_httpx_ollama
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", "https://ollama.com/v1")
+    install_fake_httpx_ollama(monkeypatch, ids=[DEFAULT_QUICK_MODEL, DEFAULT_DEEP_MODEL])
     resp = settings_client.get("/api/settings/defaults")
     assert resp.status_code == 200
     body = resp.json()
