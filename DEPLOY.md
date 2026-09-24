@@ -290,8 +290,8 @@ it only into the running container.
 | `OLLAMA_BASE_URL`     | optional | yes          | `https://ollama.com/v1` for Ollama Cloud; omit if not using Ollama              |
 | `OLLAMA_API_KEY`      | optional | yes          | Ollama Cloud API key (required when `OLLAMA_BASE_URL` points at ollama.com)     |
 | `TRADINGAGENTS_LLM_PROVIDER` | optional | yes   | `ollama` for the [lite VPS preset](web/docs/operations.md#lite-vps-preset)      |
-| `TRADINGAGENTS_QUICK_THINK_LLM` | optional | yes | `glm-5.2` (lite preset default)                                                |
-| `TRADINGAGENTS_DEEP_THINK_LLM`  | optional | yes | `glm-5.2` (lite preset default)                                                |
+| `TRADINGAGENTS_QUICK_THINK_LLM` | optional | yes | `glm-5.3-flash` (lite preset default)                                          |
+| `TRADINGAGENTS_DEEP_THINK_LLM`  | optional | yes | `glm-5.3` (lite preset default)                                                |
 | `TRADINGAGENTS_MAX_DEBATE_ROUNDS` | optional | yes | `1` (lite preset)                                                             |
 | `TRADINGAGENTS_MAX_RISK_ROUNDS`   | optional | yes | `1` (lite preset)                                                             |
 | `TRADINGAGENTS_RUN_MAX_SECONDS`   | optional | yes | `1200` (lite preset)                                                          |
@@ -416,8 +416,8 @@ upstream probe block (`status`, `model_count`, `circuit_state`).
    - Depth: `1` (Shallow)
    - Provider: `ollama` (Ollama Cloud — requires `OLLAMA_BASE_URL` +
      `OLLAMA_API_KEY` in Step 4)
-   - Quick model: `glm-5.2`
-   - Deep model: `glm-5.2`
+   - Quick model: `glm-5.3-flash`
+   - Deep model: `glm-5.3`
 
    The run takes a few minutes at depth=1 with a cloud model. Watch the agent
    grid turn green and the final 5-tier rating (`Buy / Overweight / Hold /

@@ -191,10 +191,18 @@ class ThinkingConfig(_FrontendModel):
     anthropic_effort: AnthropicEffort | None = None
 
 
+#: Ollama Cloud models used when the admin hasn't saved a choice. Bare IDs,
+#: exactly as ``GET https://ollama.com/v1/models`` lists them — the ``:cloud``
+#: suffix is only for the local Ollama app/CLI. Flash is the cheaper model for
+#: the high-volume analyst and debate turns; full 5.3 makes the decisions.
+DEFAULT_QUICK_MODEL = "glm-5.3-flash"
+DEFAULT_DEEP_MODEL = "glm-5.3"
+
+
 class UserDefaults(_FrontendModel):
     llm_provider: str | None = "ollama"
-    quick_think_llm: str | None = "glm-5.2"
-    deep_think_llm: str | None = "glm-5.2"
+    quick_think_llm: str | None = DEFAULT_QUICK_MODEL
+    deep_think_llm: str | None = DEFAULT_DEEP_MODEL
     research_depth: ResearchDepth | None = 1
     analysts: list[AnalystKey] | None = ["market", "social"]
     output_language: str | None = None

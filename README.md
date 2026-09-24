@@ -123,8 +123,8 @@ full walk-through.
 
 **Lite VPS defaults** (2 vCPU / 8 GB, cloud LLM — no local Ollama on
 the box): shallow research depth, Market + Sentiment analysts only, and
-**`glm-5.2`** pre-selected for both quick- and deep-think models when
-using Ollama Cloud. Env-var overrides and sizing notes live in
+**`glm-5.3-flash`** (quick think) and **`glm-5.3`** (deep think)
+pre-selected when using Ollama Cloud. Env-var overrides and sizing notes live in
 [`web/docs/operations.md`](web/docs/operations.md#lite-vps-preset).
 
 Fork-specific releases and operational changes are tracked in

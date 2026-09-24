@@ -64,7 +64,7 @@ should know the invariants:
    NOT mutated; the next PUT overwrites cleanly. When no `user_defaults`
    row exists yet, the response uses schema defaults: `research_depth=1`,
    `analysts=["market","social"]`, `llm_provider="ollama"`,
-   `quick_think_llm` / `deep_think_llm` = `"glm-5.2"`,
+   `quick_think_llm="glm-5.3-flash"`, `deep_think_llm="glm-5.3"`,
    `enable_checkpoint=true`.
 4. **`PUT /api/settings/defaults` validates** provider + model against
    the live catalog and returns 400 with the available list. `null` is

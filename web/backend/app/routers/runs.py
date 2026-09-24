@@ -80,13 +80,13 @@ async def _suggested_alternatives() -> list[str]:
 
     Intersect of:
 
-    * The curated cloud catalog snapshot (``CURATED_2026_08``).
+    * The curated cloud catalog snapshot (``CURATED_2026_09``).
     * The currently-cached ``/v1/models`` listing — what the upstream
       account actually has access to.
     * Models NOT cached as unhealthy.
 
     Sorted alphabetically with the newest GLM headline model pinned first
-    when present (``glm-5.2`` → ``glm-5.1``), capped at 3
+    when present (``glm-5.3`` → ``glm-5.3-flash`` → ``glm-5.2``), capped at 3
     entries. Returning fewer than 3 is fine — the UI handles the empty case.
     """
     from ..services.ollama_curated import is_curated
@@ -115,7 +115,7 @@ async def _suggested_alternatives() -> list[str]:
     # and since the result is capped at 3, the headline model would not merely
     # lose its position but drop out entirely once three other curated models
     # sort ahead of it.
-    _HEADLINE_PIN_ORDER = ("glm-5.2", "glm-5.1")
+    _HEADLINE_PIN_ORDER = ("glm-5.3", "glm-5.3-flash", "glm-5.2")
     head: list[str] = []
     for pin in _HEADLINE_PIN_ORDER:
         match = next((m for m in candidates if m.split(":", 1)[0] == pin), None)
