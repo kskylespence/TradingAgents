@@ -73,12 +73,16 @@ test.describe("happy path", () => {
     // The DecisionBadge renders `aria-label="Recommendation: <Rating>"`.
     // Matching by aria-label avoids coupling to surrounding text formatting.
     const ratings = ["Buy", "Overweight", "Hold", "Underweight", "Sell"];
-    const badge = page.getByLabel(
+    // The run header and the final-decision card each carry a badge; both
+    // must show the same valid rating.
+    const badges = page.getByLabel(
       new RegExp(`Recommendation:\\s*(${ratings.join("|")})`, "i"),
     );
-    await expect(badge).toBeVisible({ timeout: 30_000 });
-    const badgeText = (await badge.textContent())?.trim() ?? "";
-    expect(ratings).toContain(badgeText);
+    await expect(badges.first()).toBeVisible({ timeout: 30_000 });
+    const badgeTexts = (await badges.allTextContents()).map((t) => t.trim());
+    expect(badgeTexts.length).toBeGreaterThan(0);
+    for (const text of badgeTexts) expect(ratings).toContain(text);
+    expect(new Set(badgeTexts).size).toBe(1);
 
     // Status pill should land on "completed" once the fake stream is done.
     await expect(

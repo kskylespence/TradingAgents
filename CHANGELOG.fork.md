@@ -61,6 +61,19 @@ for the per-deploy cut workflow.
   configured endpoint's own models (`GET {OLLAMA_BASE_URL}/models`, with
   `OLLAMA_API_KEY` as a bearer token when set) and falls back to typing a
   model ID when the endpoint cannot be reached.
+- **A fresh SQLite database could not be built, so the Playwright e2e
+  suite never booted.** Migration 0003 altered `runs` with plain
+  `create_foreign_key` / `alter_column`, which SQLite rejects ("No support
+  for ALTER of constraints"). It now uses Alembic batch mode, which
+  rebuilds the table on SQLite and issues the same ALTERs on Postgres —
+  verified on Postgres 16 (identical `runs_user_id_fkey … ON DELETE
+  RESTRICT`, `user_id uuid NOT NULL`); databases that already ran 0003,
+  like production, are unaffected. The e2e config also created its data
+  directory in `globalSetup`, which Playwright runs *after* starting the
+  servers, and assumed `python`/`alembic` on PATH; it now creates the
+  directory at load and uses `PW_PYTHON`, the repo `.venv`, or `python`.
+  The happy-path test passes again (and checks the run's two rating
+  badges agree).
 - **The disk pruner never pruned checkpoints.** It looked for
   `cache/<TICKER>-<DATE>-checkpoint.sqlite`, one file per run, but the
   LangGraph saver writes one database per ticker,

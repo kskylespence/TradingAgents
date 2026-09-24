@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,7 +35,7 @@ const E2E_DATA_DIR = path.resolve(__dirname, ".pw-data");
 const E2E_DB_PATH = path.resolve(__dirname, ".pw-data/e2e.db");
 
 const ADMIN_USERNAME = "test-admin";
-// bcrypt hash of "password" — produced via passlib.hash.bcrypt.
+// bcrypt hash of "password" ($2b$, 12 rounds).
 const ADMIN_PASSWORD_HASH =
   "$2b$12$cZ9ZjD2vAFt/rYJR8Ltdq.qKGDcveqHr3e.RshzlmbOd9g7MsTQcq";
 const JWT_SECRET = "playwright-e2e-jwt-secret-do-not-use-in-prod";
@@ -53,21 +54,31 @@ const BACKEND_ENV = {
   DEBUG: "1",
 };
 
-// Single shell-line that primes the DB then launches uvicorn.
-// We avoid platform-specific mkdir (Windows `if not exist` parses only
-// in cmd.exe; bash/sh trip on it — and Playwright's spawn uses whichever
-// shell happens to be on PATH). The .pw-data dir is created up-front via
-// `globalSetup` so the shell line below is purely cross-platform.
+// Created here, when the config loads: Playwright starts webServer before it
+// runs globalSetup, so a directory made there arrived too late and the
+// backend's SQLite file could not be opened. Doing it in Node also keeps the
+// shell line below free of platform-specific mkdir.
+mkdirSync(E2E_DATA_DIR, { recursive: true });
+
+// The interpreter for the backend: PW_PYTHON, else the repo venv, else
+// `python` on PATH (absent on some machines, e.g. macOS with only python3).
+const REPO_VENV_PYTHON = [
+  path.resolve(REPO_ROOT, ".venv/bin/python"),
+  path.resolve(REPO_ROOT, ".venv/Scripts/python.exe"),
+].find((p) => existsSync(p));
+const PYTHON = process.env.PW_PYTHON ?? REPO_VENV_PYTHON ?? "python";
+
+// Single shell-line that primes the DB then launches uvicorn, both through
+// the same interpreter so alembic need not be on PATH.
 const backendCommand = [
-  `alembic upgrade head`,
-  `python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`,
+  `"${PYTHON}" -m alembic upgrade head`,
+  `"${PYTHON}" -m uvicorn app.main:app --host 127.0.0.1 --port 8000`,
 ].join(" && ");
 
 const skipWebServer = process.env.PW_SKIP_WEBSERVER === "1";
 
 export default defineConfig({
   testDir: "./e2e",
-  globalSetup: "./e2e/globalSetup.ts",
   fullyParallel: false, // backend has a single global run lock — serialise.
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

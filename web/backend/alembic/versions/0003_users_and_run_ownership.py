@@ -42,15 +42,18 @@ def upgrade() -> None:
         sa.UniqueConstraint("username", name="users_username_key"),
     )
 
-    op.add_column("runs", sa.Column("user_id", _uuid(), nullable=True))
-    op.create_foreign_key(
-        "runs_user_id_fkey",
-        "runs",
-        "users",
-        ["user_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
+    # Batch mode: SQLite cannot ALTER constraints, so on SQLite alembic
+    # rebuilds the table; on Postgres these are the same plain ALTERs as
+    # before (databases that already ran 0003 are unaffected).
+    with op.batch_alter_table("runs") as batch_op:
+        batch_op.add_column(sa.Column("user_id", _uuid(), nullable=True))
+        batch_op.create_foreign_key(
+            "runs_user_id_fkey",
+            "users",
+            ["user_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
 
     # Placeholder hash — bootstrap hook overwrites on startup.
     bind = op.get_bind()
@@ -83,7 +86,8 @@ def upgrade() -> None:
             sa.text("UPDATE runs SET user_id = :uid").bindparams(uid=BOOTSTRAP_ADMIN_ID)
         )
 
-    op.alter_column("runs", "user_id", nullable=False)
+    with op.batch_alter_table("runs") as batch_op:
+        batch_op.alter_column("user_id", existing_type=_uuid(), nullable=False)
 
     op.create_index(
         "runs_user_created_idx",
@@ -94,6 +98,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("runs_user_created_idx", table_name="runs")
-    op.drop_constraint("runs_user_id_fkey", "runs", type_="foreignkey")
-    op.drop_column("runs", "user_id")
+    with op.batch_alter_table("runs") as batch_op:
+        batch_op.drop_constraint("runs_user_id_fkey", type_="foreignkey")
+        batch_op.drop_column("user_id")
     op.drop_table("users")
