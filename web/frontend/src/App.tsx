@@ -37,7 +37,7 @@ function NavBar() {
     );
 
   return (
-    <header className="sticky top-0 z-40 border-b border-emerald-900/40 bg-[hsl(var(--terminal-bg))]/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-emerald-900/40 bg-[hsl(var(--terminal-bg))]/95 backdrop-blur-sm">
       <div className="container flex h-14 items-center gap-6">
         <div className="flex flex-col leading-none">
           <div className="font-semibold tracking-tight text-emerald-400">

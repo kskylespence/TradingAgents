@@ -10,6 +10,19 @@ describe("utils", () => {
     );
   });
 
+  it("resolves Tailwind v4 class syntax (tailwind-merge must match Tailwind)", () => {
+    // The v4 codemod rewrote h-[var(--x)] as h-(--x) in components/ui/select
+    // and toast, and outline-none as outline-hidden. tailwind-merge v2 does
+    // not parse either and keeps both classes, so a className override on
+    // those components would silently not apply.
+    expect(cn("h-(--radix-select-trigger-height)", "h-8")).toBe("h-8");
+    expect(cn("min-w-(--radix-select-trigger-width)", "min-w-32")).toBe("min-w-32");
+    expect(cn("translate-x-(--radix-toast-swipe-end-x)", "translate-x-0")).toBe(
+      "translate-x-0",
+    );
+    expect(cn("outline-hidden", "outline-dashed")).toBe("outline-dashed");
+  });
+
   it("formats elapsed seconds", () => {
     expect(formatElapsed(0)).toBe("0s");
     expect(formatElapsed(45)).toBe("45s");

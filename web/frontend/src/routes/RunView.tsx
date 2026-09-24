@@ -454,7 +454,7 @@ function DebateBlock({ title, body }: { title: string; body: string | undefined 
       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </div>
-      <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 font-sans text-sm leading-relaxed">
+      <pre className="whitespace-pre-wrap wrap-break-word rounded-md border bg-muted/30 p-3 font-sans text-sm leading-relaxed">
         {body}
       </pre>
     </div>
@@ -470,7 +470,7 @@ function ToolCallsPanel({ toolCalls }: { toolCalls: ToolCallEvent[] }) {
     );
   }
   return (
-    <div className="h-[28rem] overflow-y-auto rounded-md border bg-card">
+    <div className="h-112 overflow-y-auto rounded-md border bg-card">
       <ul className="divide-y">
         {toolCalls
           .slice()
@@ -486,7 +486,7 @@ function ToolCallsPanel({ toolCalls }: { toolCalls: ToolCallEvent[] }) {
                   {formatTime(c.timestamp)}
                 </span>
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+              <pre className="overflow-x-auto whitespace-pre-wrap wrap-break-word rounded bg-muted/40 px-2 py-1 font-mono text-[11px] text-muted-foreground">
                 {JSON.stringify(c.args, null, 2)}
               </pre>
             </li>

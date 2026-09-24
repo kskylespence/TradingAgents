@@ -214,7 +214,7 @@ export default function History() {
                           navigate(`/runs/${run.id}`);
                         }
                       }}
-                      className="cursor-pointer border-t transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
+                      className="cursor-pointer border-t transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-hidden"
                     >
                       <td className="px-4 py-3 whitespace-nowrap">
                         {formatDate(run.created_at)}

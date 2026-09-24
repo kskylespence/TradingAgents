@@ -67,7 +67,7 @@ export function MessageLog({ messages, className }: MessageLogProps) {
     <div
       ref={ref}
       className={cn(
-        "h-[28rem] overflow-y-auto rounded-md border bg-card font-mono text-xs",
+        "h-112 overflow-y-auto rounded-md border bg-card font-mono text-xs",
         className,
       )}
       aria-label="Message log"
@@ -91,7 +91,7 @@ export function MessageLog({ messages, className }: MessageLogProps) {
               <span className="shrink-0 select-none font-semibold">
                 {KIND_LABEL[m.kind]}
               </span>
-              <span className="whitespace-pre-wrap break-words">{m.content}</span>
+              <span className="whitespace-pre-wrap wrap-break-word">{m.content}</span>
             </li>
           ))}
         </ul>
