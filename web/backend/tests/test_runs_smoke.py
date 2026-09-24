@@ -465,6 +465,19 @@ def test_resume_happy_path_returns_new_run_id(
 
     asyncio.get_event_loop().run_until_complete(_seed())
 
+    # The new run must reach the engine as a resume; any other run clears a
+    # matching checkpoint and starts fresh.
+    from app.services import run_service
+
+    real_engine = run_service._run_engine
+    engine_resume_flags: list[bool] = []
+
+    async def _spy_engine(*args, resume=False, **kwargs):
+        engine_resume_flags.append(resume)
+        return await real_engine(*args, resume=resume, **kwargs)
+
+    monkeypatch.setattr(run_service, "_run_engine", _spy_engine)
+
     try:
         resp = client.post(f"/api/runs/{parent_id}/resume")
         assert resp.status_code == 200, resp.text
@@ -474,11 +487,10 @@ def test_resume_happy_path_returns_new_run_id(
         new_id = _uuid.UUID(body["run_id"])
         assert str(new_id) != parent_id, "resume must mint a NEW run id"
 
-        # Best-effort cleanup so the global run lock doesn't block teardown.
-        client.post(f"/api/runs/{new_id}/cancel")
         _wait_for_status(
             client, str(new_id), {"cancelled", "completed", "failed"}, timeout=10.0
         )
+        assert engine_resume_flags == [True]
     finally:
         get_settings.cache_clear()
 

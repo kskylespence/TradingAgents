@@ -228,9 +228,14 @@ On startup, `services/crash_recovery.run_startup_recovery(db)`:
 The frontend reads `resumable` from `GET /api/runs/:id` and shows a
 **Resume** button. Clicking it calls
 `POST /api/runs/:id/resume`, which creates a NEW run row with the
-same `(ticker, date)` so the LangGraph thread_id collides → the
-engine picks up from the checkpoint. The response is
-`{run_id, parent_run_id}` and the frontend navigates to the new run.
+parent's request fields and starts it with `resume=True`. The
+LangGraph `thread_id` hashes the ticker, date, analyst set, debate
+and risk depth and asset type, so the same request lands on the
+parent's thread and the engine continues from the last completed
+node. The response is `{run_id, parent_run_id}` and the frontend
+navigates to the new run. Every other run — a new submission or a
+Retry — clears any checkpoint on its thread first, so only Resume
+ever continues one.
 
 For `failed` and `cancelled` runs (which have no resumable
 checkpoint — either it never landed or `checkpoint_enabled` was

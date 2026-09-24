@@ -171,7 +171,7 @@ def test_run_async_aborts_on_timeout(
     # FAKE_LLM is irrelevant here — we patch _run_engine outright.
     monkeypatch.delenv("FAKE_LLM", raising=False)
 
-    async def _runaway_engine(req, asset_type, observer, cancel_event):
+    async def _runaway_engine(req, asset_type, observer, cancel_event, *, resume=False):
         # Sleeps far longer than the configured timeout.
         await asyncio.sleep(60)
         return {"final_trade_decision": "Rating: Hold"}
@@ -237,7 +237,7 @@ async def test_run_async_timeout_sets_cancel_event(monkeypatch) -> None:
 
     captured: dict = {}
 
-    async def _runaway_engine(req, asset_type, observer, cancel_event):
+    async def _runaway_engine(req, asset_type, observer, cancel_event, *, resume=False):
         captured["cancel_event"] = cancel_event
         # Hang forever; the timeout should yank us out.
         await asyncio.sleep(60)

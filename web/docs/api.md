@@ -384,10 +384,11 @@ Violation matrix:
 | Another run is in progress | `409 {"detail": "Another run is in progress"}` (raised by `start_run`) |
 | All three pass | `200 {"run_id": "...", "parent_run_id": "..."}` |
 
-The new run inherits `(ticker, analysis_date)` from the parent. The
-LangGraph `thread_id` is a hash of that pair, so the SqliteSaver
-recognises the existing checkpoint and resumes from the last
-successful node instead of starting from scratch. The frontend
+The new run inherits the parent's request fields and is started with
+`resume=True`. The LangGraph `thread_id` hashes the ticker, date,
+analyst set, debate/risk depth and asset type, so the SqliteSaver
+finds the parent's checkpoint and resumes from the last successful
+node instead of starting from scratch. The frontend
 navigates to the new `run_id` and subscribes to its SSE stream.
 
 ## Retry contract
@@ -414,8 +415,9 @@ Violation matrix:
 | Another run is in progress | `409 {"detail": "Another run is in progress"}` (raised by `start_run`) |
 | All pass | `200 {"run_id": "...", "parent_run_id": "..."}` |
 
-Unlike `/resume`, the new run does NOT share a `thread_id` with the
-parent — it starts the graph from scratch. That's the whole point:
+Unlike `/resume`, the new run starts the graph from scratch: it has
+the same `thread_id` as the parent, so the engine clears any checkpoint
+on that thread before it starts. That's the whole point:
 the parent's state was either incomplete (no checkpoint) or
 unrecoverable (transient upstream error), so we want a clean re-run
 with the same params. The frontend navigates to the new `run_id` and

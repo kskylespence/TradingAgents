@@ -80,6 +80,7 @@ from app.services import env_inject, event_bus
 # without touching the engine package itself.
 from cli.display import AnalystWallTimeTracker
 from tradingagents.agents.rating import parse_rating
+from tradingagents.dataflows.config import run_config
 from tradingagents.dataflows.symbols import safe_ticker_component
 from tradingagents.graph.analyst_execution import build_analyst_execution_plan
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
@@ -258,8 +259,13 @@ def get_active_run_id() -> UUID | None:
 # --------------------------------------------------------------------------- #
 
 
-async def start_run(req: S.RunRequest, db: AsyncSession, *, user_id: UUID) -> UUID:
+async def start_run(
+    req: S.RunRequest, db: AsyncSession, *, user_id: UUID, resume: bool = False
+) -> UUID:
     """Persist a queued run row and spawn its lifecycle task.
+
+    ``resume=True`` (only from :func:`resume_run`) continues a matching
+    interrupted checkpoint; every other run starts the graph fresh.
 
     Returns the new ``run_id``. Raises HTTP 409 if another run is already
     in progress (v1 single-run constraint).
@@ -298,7 +304,7 @@ async def start_run(req: S.RunRequest, db: AsyncSession, *, user_id: UUID) -> UU
 
     # Spawn the task on the currently-running loop. We don't await it —
     # the HTTP response returns immediately with the run_id.
-    task = asyncio.create_task(_run_async(run_id, req, asset_type))
+    task = asyncio.create_task(_run_async(run_id, req, asset_type, resume=resume))
     _run_tasks[run_id] = task
     # Avoid an "unawaited task" warning if the task errors before anyone
     # awaits it (e.g. in tests that never poll the run).
@@ -361,7 +367,7 @@ async def resume_run(parent_id: UUID, db: AsyncSession, *, user_id: UUID) -> UUI
         anthropic_effort=thinking_cfg.get("anthropic_effort"),
         enable_checkpoint=True,
     )
-    return await start_run(req, db, user_id=user_id)
+    return await start_run(req, db, user_id=user_id, resume=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -369,7 +375,9 @@ async def resume_run(parent_id: UUID, db: AsyncSession, *, user_id: UUID) -> UUI
 # --------------------------------------------------------------------------- #
 
 
-async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
+async def _run_async(
+    run_id: UUID, req: S.RunRequest, asset_type: str, *, resume: bool = False
+) -> None:
     """The lifecycle coroutine.
 
     Runs under ``GLOBAL_RUN_LOCK`` so the env-var injection in
@@ -433,7 +441,7 @@ async def _run_async(run_id: UUID, req: S.RunRequest, asset_type: str) -> None:
                     run_max = RUN_MAX_SECONDS_DEFAULT
                 try:
                     final_state = await asyncio.wait_for(
-                        _run_engine(req, asset_type, observer, cancel_event),
+                        _run_engine(req, asset_type, observer, cancel_event, resume=resume),
                         timeout=run_max,
                     )
                 except asyncio.TimeoutError:
@@ -522,6 +530,8 @@ async def _run_engine(
     asset_type: str,
     observer: WebRunObserver,
     cancel_event: asyncio.Event,
+    *,
+    resume: bool = False,
 ) -> dict[str, Any]:
     """Build the graph + state, then drive ``stream_run`` on a worker thread.
 
@@ -572,24 +582,48 @@ async def _run_engine(
         observer=observer,
     )
 
-    # Canonical init_state — see cli/main.py:984-988.
-    init_state = graph.propagator.create_initial_state(
-        req.ticker,
-        req.analysis_date.isoformat(),
-        asset_type=asset_type,
-    )
+    trade_date = req.analysis_date.isoformat()
     args = graph.propagator.get_graph_args(callbacks=[stats_handler])
 
     def _sync_loop() -> dict[str, Any]:
-        return stream_run(
-            graph,
-            init_state,
-            args,
-            observer,
-            selected_analysts=analyst_keys,
-            cancel_event=cancel_event,
-            wall_time_tracker=wall_time_tracker,
-        )
+        # Same lifecycle as TradingAgentsGraph.propagate() and the CLI's
+        # stream loop, all on this worker thread because settling past
+        # decisions and resolving the instrument fetch prices.
+        with run_config(config):
+            # Settles this ticker's pending decisions, then injects past
+            # context and instrument identity into the initial state.
+            init_state = graph.create_run_state(req.ticker, trade_date, asset_type)
+            if not resume:
+                # Only the Resume action continues a checkpoint. A new run or
+                # a Retry with the same parameters shares the checkpoint's
+                # thread id, so drop any leftover state before it starts.
+                graph.clear_checkpoint_on_success(req.ticker, trade_date, asset_type)
+            # None unless checkpointing is on; then the graph is recompiled
+            # with the per-ticker saver, and a resume continues from the last
+            # completed node.
+            thread = graph.begin_checkpoint(req.ticker, trade_date, asset_type)
+            try:
+                if thread is not None:
+                    args.setdefault("config", {}).setdefault("configurable", {})[
+                        "thread_id"
+                    ] = thread
+                final_state = stream_run(
+                    graph,
+                    graph.checkpoint_input(init_state),
+                    args,
+                    observer,
+                    selected_analysts=analyst_keys,
+                    cancel_event=cancel_event,
+                    wall_time_tracker=wall_time_tracker,
+                )
+                if cancel_event.is_set():
+                    # Keep the checkpoint so the run can be resumed.
+                    return final_state
+                graph.record_decision(req.ticker, trade_date, final_state)
+                graph.clear_checkpoint_on_success(req.ticker, trade_date, asset_type)
+                return final_state
+            finally:
+                graph.end_checkpoint()
 
     final_state = await asyncio.to_thread(_sync_loop)
 

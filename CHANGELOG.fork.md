@@ -20,6 +20,32 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **"Resume" on an interrupted web run started over instead of resuming.**
+  `resume_run` counted on the engine's checkpoint saver, but the web engine
+  streamed the plain compiled graph and never opened a checkpoint, so a
+  "resumed" run re-ran every agent and paid for every LLM call again. The
+  engine now uses the begin/end checkpoint API upstream added in v0.4
+  (#1249): a resumed run continues from its last completed node, and a
+  clean finish clears the checkpoint. Only the Resume action resumes — a
+  new run or a Retry with the same parameters shares the checkpoint's
+  thread id, so it clears that checkpoint first and starts fresh, as the
+  Retry contract in `web/docs/api.md` promises.
+- **Web runs ignored the decision log.** The web engine built its initial
+  state by hand, so the Portfolio Manager never saw lessons from earlier
+  runs of the same ticker, and no web decision was ever logged to be
+  settled and reflected on later. It now starts from
+  `TradingAgentsGraph.create_run_state` (settle pending decisions, inject
+  past context and instrument identity) and ends with `record_decision`,
+  the same lifecycle as `propagate()` and the CLI. Settling runs on the
+  worker thread because it fetches prices.
+- **Nothing tested the web's real engine path.** Every run test set
+  `FAKE_LLM=1`, which skips graph construction entirely; the v0.5.1 merge
+  moved two things that path depends on, and both would only have failed
+  in production. `test_run_engine_real_graph.py` now drives `_run_engine`
+  offline with scripted models, including an interrupted-then-resumed run.
+  Its network block also stops yfinance, which fetches through `curl_cffi`
+  and bypasses Python's `socket` module.
+
 ### Removed
 
 ### Security
