@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Suspense, lazy } from "react";
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, NavLink, Navigate, Route, Routes } from "react-router";
 
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { ProtectedRoute } from "@/components/ProtectedRoute";

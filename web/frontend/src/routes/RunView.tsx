@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { AgentStatusGrid } from "@/components/AgentStatusGrid";
 import { DecisionBadge } from "@/components/DecisionBadge";

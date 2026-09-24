@@ -18,7 +18,7 @@
  *     inspection) can pick it out.
  *
  * We mock at three boundaries (matching RunView.resume.test.tsx):
- *   1. ``react-router-dom`` — replace ``useNavigate`` with a spy.
+ *   1. ``react-router`` — replace ``useNavigate`` with a spy.
  *   2. ``@/lib/api`` — stub api.* to no-ops (we don't fire any requests).
  *   3. ``@/hooks/useRun`` — return a deterministic snapshot with a
  *      heartbeat (or not). Each test calls ``setUseRunReturn`` to flip
@@ -26,16 +26,16 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LlmCallPendingEvent, RunDetail } from "@/lib/types";
 
 // ---- Mocks (declare BEFORE importing RunView) -------------------------- //
 
-vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual<typeof import("react-router-dom")>(
-    "react-router-dom",
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>(
+    "react-router",
   );
   return { ...actual, useNavigate: () => vi.fn() };
 });

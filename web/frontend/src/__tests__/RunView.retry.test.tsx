@@ -17,15 +17,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router";
 
 // ---- Mocks (declare BEFORE importing RunView) ---------------------------- //
 
 const navigateSpy = vi.fn();
 
-vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual<typeof import("react-router-dom")>(
-    "react-router-dom",
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>(
+    "react-router",
   );
   return {
     ...actual,

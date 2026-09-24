@@ -11,7 +11,7 @@
  *   1. ``@/hooks/useRun`` — return an interrupted+resumable run snapshot
  *      so the Resume button is rendered.
  *   2. ``@/lib/api`` — stub ``api.post`` to resolve the resume response.
- *   3. ``react-router-dom`` — replace ``useNavigate`` with a vi.fn spy.
+ *   3. ``react-router`` — replace ``useNavigate`` with a vi.fn spy.
  *
  * The other RunView mounts (charts, message log, report panel) work in
  * the mocked state because the mocked useRun returns realistic defaults.
@@ -20,15 +20,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router";
 
 // ---- Mocks (declare BEFORE importing RunView) ---------------------------- //
 
 const navigateSpy = vi.fn();
 
-vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual<typeof import("react-router-dom")>(
-    "react-router-dom",
+vi.mock("react-router", async () => {
+  const actual = await vi.importActual<typeof import("react-router")>(
+    "react-router",
   );
   return {
     ...actual,
