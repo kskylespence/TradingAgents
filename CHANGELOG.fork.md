@@ -38,6 +38,17 @@ for the per-deploy cut workflow.
   past context and instrument identity) and ends with `record_decision`,
   the same lifecycle as `propagate()` and the CLI. Settling runs on the
   worker thread because it fetches prices.
+- **Settings showed — and could save — the wrong defaults.** Radix Select
+  keeps a hidden native `<select>` in sync with its value; when saved
+  defaults arrived before the matching option was registered, the browser
+  rejected the value and Radix reported `""` to `onValueChange`. Research
+  depth then read "No default" although depth 1 was saved (visible after
+  the React 19 / Radix upgrade), and a saved provider that is no longer
+  configured was silently reset to "No default" — so saving anything else
+  on the page erased it. The shared `Select` wrapper now drops `""` (Radix
+  forbids it as an item value, so it is never a real choice), and a saved
+  provider that is not configured is listed as `<name> (not configured)`
+  instead of blanking the field. Found by diffing before/after screenshots.
 - **Nothing tested the web's real engine path.** Every run test set
   `FAKE_LLM=1`, which skips graph construction entirely; the v0.5.1 merge
   moved two things that path depends on, and both would only have failed

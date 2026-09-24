@@ -4,7 +4,33 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const Select = SelectPrimitive.Root;
+/**
+ * Radix Select root that never reports an empty value.
+ *
+ * Radix keeps a hidden native <select> in sync with `value`. When `value`
+ * changes before the matching <option> is registered (e.g. saved defaults
+ * arriving after first render), the browser rejects it, the hidden
+ * select's change event reports "", and Radix forwards that to
+ * onValueChange — wiping the value that was just set. "" can never be a
+ * real choice (Radix forbids empty item values), so it is dropped here.
+ */
+function Select({
+  onValueChange,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>) {
+  const handleValueChange = React.useCallback(
+    (value: string) => {
+      if (value !== "") onValueChange?.(value);
+    },
+    [onValueChange],
+  );
+  return (
+    <SelectPrimitive.Root
+      {...props}
+      onValueChange={onValueChange ? handleValueChange : undefined}
+    />
+  );
+}
 const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 

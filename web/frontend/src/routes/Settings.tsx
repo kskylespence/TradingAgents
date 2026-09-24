@@ -349,6 +349,15 @@ function DefaultsCard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={UNSET}>No default</SelectItem>
+                  {/* A saved default can outlive its provider's configuration;
+                      list it so the trigger names it instead of going blank. */}
+                  {form.llm_provider &&
+                  providers.data &&
+                  !providers.data.some((p) => p.key === form.llm_provider) ? (
+                    <SelectItem value={form.llm_provider}>
+                      {form.llm_provider} (not configured)
+                    </SelectItem>
+                  ) : null}
                   {(providers.data ?? []).map((p) => (
                     <SelectItem key={p.key} value={p.key}>
                       {p.label}
