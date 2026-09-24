@@ -1,13 +1,14 @@
-# Upstream merge — v0.3.1 (completed 2026-07-08)
+# Upstream merges
 
-Merged [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
-**v0.3.1** on branch `merge/upstream-v0.3.1` → fork **`0.3.1+hf.1`**.
+Latest: [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
+**v0.5.1** (2026-09-24) → fork **`0.5.1+hf.1`**. Earlier: v0.3.1 → `0.3.1+hf.1`
+(2026-07-08).
 
 ## Current state
 
 | | Fork | Upstream |
 |---|------|----------|
-| Version | `0.3.1+hf.1` | `v0.3.1` (2026-07-05) |
+| Version | `0.5.1+hf.1` | `v0.5.1` (2026-09-24) |
 | Web UI / Coolify | Yes | No |
 | Resilience (run timeout, Ollama circuit breaker) | Yes | Partial (`TRADINGAGENTS_LLM_MAX_RETRIES` in v0.3.1) |
 
@@ -71,3 +72,30 @@ Brought in four fixes, two of which matter to this fork's data path:
 Verified after merge: root `pytest -m "not integration"` 644 passed
 (up from 627 — upstream added three test files), `web/backend` pytest
 239 passed, frontend `npm run build` + 61 vitest passing, `ruff` clean.
+
+**v0.5.1 sync: 2026-09-24.** Merged the signed tag `v0.5.1` (verified via
+the GitHub API; commit `35543d0`), 136 commits past `a33fd4c`, on branch
+`chore/security-refresh-2026-09`. Upstream reorganised modules, which the
+fork's web backend imports; adaptations a future sync should expect:
+
+- `safe_ticker_component` moved to `tradingagents/dataflows/symbols.py`,
+  `parse_rating` to `tradingagents/agents/rating.py` (default is now
+  `REVIEW`; the web passes `default="Hold"`).
+- `AnalystWallTimeTracker` / `sync_analyst_tracker_from_chunk` moved to
+  `cli/display.py`; the fork re-adds `get_wall_times()` there (upstream
+  deleted it as unused). The web runner imports from `cli.display`.
+- `cli/main.py` became a thin Typer app (`display`, `prompts`,
+  `selections`, `run`); `cli/prompts.py` imports the shared
+  `tradingagents.asset_types` / `providers` helpers.
+- `graph/trading_graph.py`: upstream's `begin_checkpoint` /
+  `checkpoint_input` / `end_checkpoint` / `create_run_state` /
+  `record_decision` now drive the web engine too (resume + decision log).
+- `model_catalog.py`: the fork still lists no static Ollama models.
+
+Grep-based checks miss lazy imports; after a sync, import every module
+(`pkgutil.walk_packages` over `tradingagents`, `cli`, `app`) and run
+`web/backend/tests/test_run_engine_real_graph.py`, which drives the real
+engine offline — FAKE_LLM tests skip it entirely.
+
+Verified after merge: root 1073 passed (2 did not run: optional Bedrock
+extra, live DeepSeek), web backend 268 passed, ruff clean.

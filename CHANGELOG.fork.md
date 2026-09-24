@@ -18,6 +18,19 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+- **Frontend stack to current majors.** React 19, React Router 8
+  (`react-router-dom` → `react-router`), Vite 8, Vitest 5, Tailwind CSS 4,
+  TypeScript 7, lucide-react 1, Radix and TanStack Query to latest; zod
+  removed (unused). Clears all 17 `npm audit` advisories (1 critical,
+  8 high). Checked with full-page screenshots against the pre-upgrade
+  build: login, new-run and run pages are pixel-identical; the Tailwind
+  4 migration needed a `space-y` compatibility layer, a
+  `tw-animate-css` swap and one codemod correction (see commit history).
+- **Upstream v0.5.1 (from v0.3.1).** Brings upstream's point-in-time data
+  fixes, backtest command, SEC EDGAR fundamentals and the vendor-key /
+  `.env`-permission hardening; the fork's web engine was adapted to the
+  reorganised modules. Details in `docs/UPSTREAM-MERGE.md`.
+
 ### Fixed
 
 - **"Resume" on an interrupted web run started over instead of resuming.**

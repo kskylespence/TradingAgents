@@ -20,8 +20,8 @@ seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` at startup.
 
 | Backend (`backend/`) | Frontend (`frontend/`) |
 |---|---|
-| FastAPI + Uvicorn | Vite + React 18 + TypeScript 5 |
-| SQLAlchemy 2.0 async + Alembic | Tailwind 3 + shadcn/ui |
+| FastAPI + Uvicorn | Vite 8 + React 19 + TypeScript 7 |
+| SQLAlchemy 2.0 async + Alembic | Tailwind 4 + shadcn/ui |
 | Postgres (Coolify local / Neon / SQLite dev) | TanStack React Query + react-router |
 | `sse-starlette` for live streaming | `EventSource` + reducer hook |
 | `bcrypt` + PyJWT for auth | Playwright + Vitest for tests |

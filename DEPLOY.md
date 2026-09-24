@@ -369,7 +369,7 @@ upstream probe block (`status`, `model_count`, `circuit_state`).
 1. Click **Deploy** in Coolify. Watch the build logs:
 
    ```text
-   Step ../.. : FROM node:20-alpine AS fe
+   Step ../.. : FROM node:24-alpine AS fe
    Step ../.. : FROM python:3.12-slim AS be
    ...
    Successfully tagged coolify/...:latest
