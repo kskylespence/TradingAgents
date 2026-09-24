@@ -20,7 +20,6 @@
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": false,
 
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
