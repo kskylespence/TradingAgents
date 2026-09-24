@@ -7,8 +7,8 @@ Layout (all under ``settings.data_dir``)::
     data_dir/
         logs/<TICKER>/<run_id>/...        -> per-run agent traces
         reports/<TICKER>_<DATE>/...       -> rendered report artefacts
-        cache/<TICKER>-<DATE>-checkpoint.sqlite
-                                          -> LangGraph checkpoint per (ticker, date)
+        cache/checkpoints/<TICKER>.db     -> LangGraph checkpoints, one database
+                                             per ticker (plus -wal/-shm sidecars)
 
 Retention policy:
 
@@ -18,16 +18,19 @@ Retention policy:
   ``runs.created_at`` because a report dir may exist without a DB row
   (manual artifact, debug run, etc.) — ``mtime`` is the universal signal.
 
-- **Checkpoint SQLite files** under ``cache/`` are keyed by
-  ``<TICKER>-<DATE>-checkpoint.sqlite``. We parse the filename, look the
-  ``(ticker, analysis_date)`` pair up in the ``runs`` table, and delete
-  the file when the matching row's ``created_at`` is older than
-  ``retention_days``. We prefer filename parsing over loading every Run
-  row into memory because most installations will have far more rows
-  than checkpoint files.
+- **Checkpoint databases** are the per-ticker SQLite files
+  ``tradingagents.graph.checkpointer`` writes (``<TICKER>.db``, the ticker
+  upper-cased by ``safe_ticker_component``). One file holds every run's
+  thread for that ticker, and thread ids are hashes, so individual runs
+  cannot be told apart. The whole database — with its -wal/-shm/-journal
+  sidecars — is deleted when the ticker's *newest* ``runs.created_at`` is
+  older than ``retention_days``: resume only ever needs a recent
+  interrupted run, so a ticker untouched for that long has nothing worth
+  keeping. (Earlier versions looked for ``<TICKER>-<DATE>-checkpoint.sqlite``
+  files, which nothing writes, so checkpoints were never pruned.)
 
-**Orphan checkpoint policy**: a checkpoint file whose filename does NOT
-match any row in ``runs`` is **kept**. Without a corresponding DB row we
+**Orphan checkpoint policy**: a checkpoint database whose ticker has NO
+row in ``runs`` is **kept**. Without a corresponding DB row we
 have no created_at signal, and silently deleting an orphan would punish
 operators who placed a checkpoint by hand (or who lost their DB and have
 nothing else to rebuild from). Documented here and tested in
@@ -53,17 +56,15 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 log = logging.getLogger(__name__)
 
 
-# Filenames look like "SPY-2026-05-19-checkpoint.sqlite". The DATE block is
-# exactly the ISO ``YYYY-MM-DD`` shape. The ticker chunk is greedy but
-# restricted to the chars ``safe_ticker_component`` allows (alnum + . _ - ^).
-_CHECKPOINT_RE = re.compile(
-    r"^(?P<ticker>[A-Za-z0-9._\^]+)-(?P<date>\d{4}-\d{2}-\d{2})-checkpoint\.sqlite$"
-)
+# Checkpoint databases are "<TICKER>.db"; the stem is restricted to the chars
+# ``safe_ticker_component`` allows (alnum + . _ - ^), upper-cased.
+_CHECKPOINT_RE = re.compile(r"^(?P<ticker>[A-Z0-9._\-\^]+)\.db$")
+_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 
 
 # --------------------------------------------------------------------------- #
@@ -151,69 +152,63 @@ def _prune_report_dirs(data_dir: Path, retention_days: int) -> int:
 
 
 async def _prune_checkpoints(data_dir: Path, retention_days: int, db) -> int:
-    """Delete cache/*-checkpoint.sqlite files older than retention via runs.created_at."""
+    """Delete per-ticker checkpoint DBs whose newest run is older than retention."""
     from app.models import Run  # local import to avoid pulling ORM at module load
 
-    cache_dir = data_dir / "cache"
-    if not cache_dir.is_dir():
+    checkpoint_dir = data_dir / "cache" / "checkpoints"
+    if not checkpoint_dir.is_dir():
         return 0
 
     cutoff_dt = datetime.now(tz=timezone.utc) - _timedelta_days(retention_days)
     deleted = 0
-    for candidate in cache_dir.iterdir():
+    for candidate in checkpoint_dir.iterdir():
         if not candidate.is_file():
             continue
         m = _CHECKPOINT_RE.match(candidate.name)
         if not m:
-            # Unknown filename shape -> not ours, leave it alone.
+            # Sidecars and anything else: not a database we manage directly.
             continue
         ticker = m.group("ticker")
-        date_str = m.group("date")
-        try:
-            analysis_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            log.warning(
-                "disk_pruner.bad_checkpoint_filename",
-                extra={"path": str(candidate)},
-            )
-            continue
 
         try:
             result = await db.execute(
-                select(Run.created_at)
-                .where(Run.ticker == ticker)
-                .where(Run.analysis_date == analysis_date)
-                .order_by(Run.created_at.desc())
-                .limit(1)
+                # runs.ticker keeps the user's spelling; the filename is upper-cased.
+                select(func.max(Run.created_at)).where(func.upper(Run.ticker) == ticker)
             )
-            created_at = result.scalar_one_or_none()
+            newest = result.scalar_one_or_none()
         except Exception:
             log.exception(
                 "disk_pruner.runs_lookup_failed",
-                extra={"path": str(candidate), "ticker": ticker, "date": date_str},
+                extra={"path": str(candidate), "ticker": ticker},
             )
             continue
 
-        if created_at is None:
+        if newest is None:
             # Orphan: no signal to delete. See module docstring.
             continue
         # SQLite returns naive datetimes; normalize to UTC for the comparison.
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        if created_at >= cutoff_dt:
+        if newest.tzinfo is None:
+            newest = newest.replace(tzinfo=timezone.utc)
+        if newest >= cutoff_dt:
             continue
-        if not _safe_inside(candidate, data_dir):
+
+        targets = [candidate] + [
+            candidate.with_name(candidate.name + suffix)
+            for suffix in _SQLITE_SIDECAR_SUFFIXES
+        ]
+        if not all(_safe_inside(t, data_dir) for t in targets):
             log.warning(
                 "disk_pruner.refuse_outside_data_dir",
                 extra={"path": str(candidate), "data_dir": str(data_dir)},
             )
             continue
         try:
-            candidate.unlink()
+            for target in targets:
+                target.unlink(missing_ok=True)
             deleted += 1
             log.info(
                 "disk_pruner.checkpoint_deleted",
-                extra={"path": str(candidate), "ticker": ticker, "date": date_str},
+                extra={"path": str(candidate), "ticker": ticker},
             )
         except Exception:
             log.exception(

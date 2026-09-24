@@ -3,12 +3,14 @@
 Covers:
 - ``prune_once`` deletes only the report directories whose mtime is older
   than ``retention_days``.
-- Per-``(ticker, date)`` checkpoint SQLite files are deleted when their
-  matching ``runs`` row's ``created_at`` is older than retention; rows
-  inside retention keep their checkpoint file.
-- **Orphan-checkpoint policy**: a checkpoint file whose filename does not
-  match any row in ``runs`` is **kept** (no signal to delete). This is the
-  safer default — see the module docstring of ``app.services.disk_pruner``.
+- Per-ticker checkpoint databases (``cache/checkpoints/<TICKER>.db``, the
+  layout ``tradingagents.graph.checkpointer`` writes, built here with its
+  own ``_db_path``) are deleted with their -wal/-shm sidecars when the
+  ticker's *newest* ``runs`` row is older than retention; a ticker with any
+  run inside retention keeps its database.
+- **Orphan-checkpoint policy**: a checkpoint database whose ticker has no
+  row in ``runs`` is **kept** (no signal to delete). This is the safer
+  default — see the module docstring of ``app.services.disk_pruner``.
 - Path-safety: a sibling file *outside* ``data_dir`` is never unlinked,
   even if a (hypothetical) malicious / corrupted name resolves into it.
 - The lifespan hook starts a task on ``startup`` and cancels it cleanly
@@ -109,17 +111,26 @@ def _seed_layout(
     _set_mtime(new_report / "final_trade_decision.md", new_report_days)
     _set_mtime(new_report, new_report_days)
 
-    # Orphan checkpoint (no runs row matches this filename) — kept.
-    orphan_checkpoint = cache / "SPY-2026-01-01-checkpoint.sqlite"
+    # Checkpoint databases at the path the real checkpointer writes to.
+    from tradingagents.graph.checkpointer import _db_path
+
+    # Orphan checkpoint (no runs row for MSFT) — kept.
+    orphan_checkpoint = _db_path(cache, "MSFT")
     orphan_checkpoint.write_bytes(b"sqlite-pretend")
 
-    # Recent-run checkpoint (corresponding row 5 days old) — kept.
-    recent_checkpoint = cache / "SPY-2026-05-15-checkpoint.sqlite"
+    # SPY's newest run is 5 days old (it also has a 200-day-old one) — kept.
+    recent_checkpoint = _db_path(cache, "SPY")
     recent_checkpoint.write_bytes(b"sqlite-pretend")
 
-    # Old-run checkpoint (corresponding row 100 days old) — should be deleted.
-    old_run_checkpoint = cache / "AAPL-2025-12-01-checkpoint.sqlite"
+    # AAPL's newest run is 100 days old — database and sidecars deleted.
+    old_run_checkpoint = _db_path(cache, "AAPL")
     old_run_checkpoint.write_bytes(b"sqlite-pretend")
+    old_run_sidecars = [
+        old_run_checkpoint.with_name(old_run_checkpoint.name + suffix)
+        for suffix in ("-wal", "-shm")
+    ]
+    for sidecar in old_run_sidecars:
+        sidecar.write_bytes(b"sqlite-pretend")
 
     return {
         "old_log": old_log,
@@ -129,11 +140,16 @@ def _seed_layout(
         "orphan_checkpoint": orphan_checkpoint,
         "recent_checkpoint": recent_checkpoint,
         "old_run_checkpoint": old_run_checkpoint,
+        "old_run_sidecars": old_run_sidecars,
     }
 
 
 async def _seed_runs(factory, *, recent_days: int, old_days: int) -> None:
-    """Insert two runs: one recent (SPY 2026-05-15), one old (AAPL 2025-12-01)."""
+    """Insert runs: SPY recent (2026-05-15) and very old (2025-06-01), AAPL old (2025-12-01).
+
+    Tickers are stored as the user typed them; SPY's old row is lower-case
+    to pin the case-insensitive match against the upper-cased DB filename.
+    """
     from app.models import Run
 
     now = datetime.now(tz=timezone.utc)
@@ -174,6 +190,24 @@ async def _seed_runs(factory, *, recent_days: int, old_days: int) -> None:
                 created_at=now - timedelta(days=old_days),
             )
         )
+        session.add(
+            Run(
+                id=str(uuid.uuid4()),
+                user_id=TEST_ADMIN_ID,
+                ticker="spy",
+                asset_type="stock",
+                analysis_date=date(2025, 6, 1),
+                analysts=["market"],
+                research_depth=1,
+                llm_provider="openai",
+                quick_think_llm="gpt-4o-mini",
+                deep_think_llm="gpt-4o",
+                output_language="English",
+                checkpoint_enabled=True,
+                status="completed",
+                created_at=now - timedelta(days=200),
+            )
+        )
         await session.commit()
 
 
@@ -206,7 +240,7 @@ async def test_prune_once_deletes_old_report_dirs_and_keeps_new(
 
 
 async def test_prune_once_keeps_orphan_checkpoints(tmp_path, db_setup) -> None:
-    """A checkpoint file with no matching Run row is preserved (orphan policy)."""
+    """Per-ticker checkpoint DBs: the newest run decides; orphans are kept."""
     from app.services.disk_pruner import prune_once
 
     _engine, factory = db_setup
@@ -225,6 +259,8 @@ async def test_prune_once_keeps_orphan_checkpoints(tmp_path, db_setup) -> None:
     assert not paths["old_run_checkpoint"].exists(), (
         "checkpoint for an out-of-retention run must be deleted"
     )
+    for sidecar in paths["old_run_sidecars"]:
+        assert not sidecar.exists(), f"{sidecar.name} must go with its database"
 
 
 async def test_prune_once_swallows_unlink_errors(

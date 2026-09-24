@@ -61,6 +61,16 @@ for the per-deploy cut workflow.
   configured endpoint's own models (`GET {OLLAMA_BASE_URL}/models`, with
   `OLLAMA_API_KEY` as a bearer token when set) and falls back to typing a
   model ID when the endpoint cannot be reached.
+- **The disk pruner never pruned checkpoints.** It looked for
+  `cache/<TICKER>-<DATE>-checkpoint.sqlite`, one file per run, but the
+  LangGraph saver writes one database per ticker,
+  `cache/checkpoints/<TICKER>.db`, so checkpoint files accumulated forever
+  (its tests seeded the same wrong names). It now deletes a ticker's
+  database, with its -wal/-shm/-journal sidecars, when that ticker's newest
+  run is older than `RETENTION_DAYS`; tickers with no runs are kept, as
+  before. **On the first pass after deploying, stale per-ticker checkpoint
+  databases on the data volume are removed** — only tickers with no run
+  inside the retention window, whose checkpoints resume can no longer use.
 - **"Resume" on an interrupted web run started over instead of resuming.**
   `resume_run` counted on the engine's checkpoint saver, but the web engine
   streamed the plain compiled graph and never opened a checkpoint, so a
