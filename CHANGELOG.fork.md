@@ -105,6 +105,18 @@ for the per-deploy cut workflow.
   by other local users. The backend's `pytest-asyncio<1.0` cap forced
   pytest < 9; the fixture failures that motivated it no longer reproduce
   (full suites green on pytest 9.1 + pytest-asyncio 1.4), so it is lifted.
+- **CI now audits dependencies and tests the web app.** CI ran only the
+  framework suite: the web backend and frontend suites never ran, and
+  nothing checked for advisories — which is how the frontend reached 17
+  (one critical) unnoticed. New jobs: web backend pytest; frontend tsc,
+  vitest and build; `pip-audit` on the hash-locked requirements and
+  `npm audit`, also on a weekly schedule so a newly published advisory
+  fails CI with no push; and a Docker build that fails if the lock drifts
+  from the pyprojects. `.github/dependabot.yml` opens weekly update PRs.
+  Every action is pinned to a full commit SHA (the GHCR publish workflow
+  holds a push token), jumping from checkout v4 / setup-python v5 /
+  login v3 / build-push v6 to their current majors. The job token is
+  read-only by default.
 - **Build stage on Node 24 LTS; no compiler in the runtime image.** Node 20
   reached end of life on 2026-04-30 and gets no security fixes.
   `build-essential` shipped gcc and make in the production image although

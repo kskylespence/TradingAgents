@@ -1,0 +1,36 @@
+# Weekly dependency and security-update PRs.
+#
+# Python: requirements.lock is produced by `uv pip compile --generate-hashes`
+# (docs/RELEASING.md §2.3), which Dependabot does not regenerate reliably.
+# The scheduled `audit` job in ci.yml is what flags a new advisory against
+# the lock; fix it by regenerating the lock with the documented command.
+# The pip entries below still raise PRs for the pyproject floors.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /web/frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pip
+    directory: /web/backend
+    schedule:
+      interval: weekly
