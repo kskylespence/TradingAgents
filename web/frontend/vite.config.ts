@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   server: {
@@ -22,7 +22,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: path.resolve(__dirname, "../backend/app/static"),
+    outDir: path.resolve(import.meta.dirname, "../backend/app/static"),
     emptyOutDir: true,
     sourcemap: true,
   },
