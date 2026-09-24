@@ -112,7 +112,8 @@ will paste each value into Coolify in Step 4. **Never commit these to git.**
 ### Admin password hash (bcrypt)
 
 ```bash
-python -c "from passlib.hash import bcrypt; print(bcrypt.using(rounds=12).hash('your-password'))"
+pip install bcrypt   # if it isn't installed already
+python -c "import bcrypt; print(bcrypt.hashpw(b'your-password', bcrypt.gensalt(12)).decode())"
 ```
 
 Replace `your-password` with the password you want to use to log in to the UI.
@@ -133,9 +134,9 @@ The output starts with `$2b$12$...` — that whole string is the value of
 > no `$` characters and round-trips cleanly:
 >
 > ```bash
-> python -c "from passlib.hash import bcrypt, sys; import base64; \
->   h = bcrypt.using(rounds=12).hash('your-password'); \
->   print('ADMIN_PASSWORD_HASH_B64=' + base64.b64encode(h.encode()).decode())"
+> python -c "import base64, bcrypt; \
+>   h = bcrypt.hashpw(b'your-password', bcrypt.gensalt(12)); \
+>   print('ADMIN_PASSWORD_HASH_B64=' + base64.b64encode(h).decode())"
 > ```
 >
 > The backend's config validator decodes the b64 form into
@@ -626,14 +627,14 @@ fallback. Diagnose from the Coolify terminal or SSH:
 CTR=$(docker ps --filter "name=yrft8wjf" --format "{{.Names}}" | head -1)  # adjust UUID prefix
 docker exec "$CTR" python -c "
 import os, base64
-from passlib.hash import bcrypt
+from app.auth import verify_password
 h  = os.environ.get('ADMIN_PASSWORD_HASH', '')
 b  = os.environ.get('ADMIN_PASSWORD_HASH_B64', '')
 print('len(HASH)    =', len(h))
 print('len(HASH_B64)=', len(b))
 if b and not h:
     h = base64.b64decode(b).decode()
-print('verify:', bcrypt.verify('your-plaintext-here', h) if len(h) >= 60 else 'hash too short')"
+print('verify:', verify_password('your-plaintext-here', h) if len(h) >= 60 else 'hash too short')"
 ```
 
 A `len(HASH)` value of 45–46 means Coolify mangled it. Delete the

@@ -51,10 +51,10 @@ async def history_engine(tmp_path):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-    from passlib.hash import bcrypt
+    from app.auth import hash_password
 
     async with factory() as session:
-        await seed_admin_user(session, password_hash=bcrypt.hash("unused"))
+        await seed_admin_user(session, password_hash=hash_password("unused"))
     try:
         yield engine, factory
     finally:

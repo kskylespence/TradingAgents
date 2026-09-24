@@ -18,7 +18,7 @@ backend working directory. Anything not listed below is ignored
 | Name | What it does |
 |---|---|
 | `ADMIN_USERNAME` | Login name of the **bootstrap admin** — the account upserted from env on every startup (fixed id `…0001`). Not the only account: further users are added from the Settings page, see [User accounts](#user-accounts). |
-| `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password (`passlib.hash.bcrypt`). The plaintext password is never stored. Required (no default); enforced `min_length=60` because every bcrypt hash is exactly 60 chars. Generate with the recipe in [`DEPLOY.md` Step 1](../../DEPLOY.md). |
+| `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password (`$2b$12$…`). The plaintext password is never stored. Required (no default); enforced `min_length=60` because every bcrypt hash is exactly 60 chars. Generate with the recipe in [`DEPLOY.md` Step 1](../../DEPLOY.md). |
 | `JWT_SECRET` | HMAC secret for signing the `access_token` cookie (HS256, `app/auth.py`). Required (no default); enforced `min_length=32`. Rotating it invalidates every existing session — see [Secret rotation](#secret-rotation). 64 hex chars from `openssl rand -hex 32`. |
 | `FERNET_KEY` | Master key used by `app/crypto.py` to encrypt provider API keys at rest in the `api_keys` table. Required (no default); enforced `min_length=44`. Produce with `Fernet.generate_key()` (44 url-safe base64 chars). **Lose this key and the stored keys become unreadable forever.** |
 | `DATABASE_URL` | SQLAlchemy async URL. Production: `postgresql+asyncpg://USER:PASS@HOST.neon.tech/DB?ssl=require`. Local dev defaults to `sqlite+aiosqlite:///:memory:`. |

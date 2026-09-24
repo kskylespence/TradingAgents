@@ -123,8 +123,8 @@ class LoginRequest(_FrontendModel):
 # User administration                                                         #
 # --------------------------------------------------------------------------- #
 
-# bcrypt hashes only the first 72 BYTES of a password and passlib raises on
-# anything longer. Note bytes, not characters: a 40-character password of
+# bcrypt hashes only the first 72 BYTES of a password; app.auth refuses
+# anything longer at hash and verify time. Note bytes, not characters: a 40-character password of
 # 4-byte emoji is 160 bytes. Validating the encoded length (below) is what
 # makes the limit honest — silently truncating would mean two different
 # passwords authenticate the same account.

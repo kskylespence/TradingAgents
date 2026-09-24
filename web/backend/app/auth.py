@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request, status
-from passlib.hash import bcrypt
 
 from .config import get_settings
 from .schemas import AuthUser
@@ -18,18 +18,37 @@ COOKIE_CSRF_TOKEN = "csrf_token"
 
 JWT_ALGORITHM = "HS256"
 
+# bcrypt reads only the first 72 bytes of a password. Longer ones are
+# refused rather than truncated, so two different strings can never
+# authenticate the same account.
+BCRYPT_MAX_PASSWORD_BYTES = 72
+BCRYPT_ROUNDS = 12
+
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password with bcrypt."""
-    return bcrypt.hash(password)
+    """Hash a plaintext password with bcrypt (``$2b$``, 12 rounds)."""
+    encoded = password.encode("utf-8")
+    if len(encoded) > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(
+            f"password is {len(encoded)} bytes; bcrypt accepts at most "
+            f"{BCRYPT_MAX_PASSWORD_BYTES} bytes"
+        )
+    return bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode("ascii")
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Constant-time bcrypt password check."""
+    """Constant-time bcrypt password check.
+
+    Accepts every hash passlib produced (``$2a$``/``$2b$``), so stored
+    hashes keep working. Any malformed input is a failed check, not an error.
+    """
     if not password or not hashed:
         return False
+    encoded = password.encode("utf-8")
+    if len(encoded) > BCRYPT_MAX_PASSWORD_BYTES:
+        return False
     try:
-        return bool(bcrypt.verify(password, hashed))
+        return bcrypt.checkpw(encoded, hashed.encode("utf-8"))
     except (ValueError, TypeError):
         return False
 

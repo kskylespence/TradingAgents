@@ -17,8 +17,8 @@ import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
+from app.auth import hash_password
 from fastapi.testclient import TestClient
-from passlib.hash import bcrypt
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     async_sessionmaker,
@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import (
 
 PASSWORD = "password"
 # Bcrypt is deliberately slow; precompute once per process.
-PASSWORD_HASH = bcrypt.hash(PASSWORD)
+PASSWORD_HASH = hash_password(PASSWORD)
 
 
 # --------------------------------------------------------------------------- #

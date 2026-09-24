@@ -24,7 +24,7 @@ seeded from `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` at startup.
 | SQLAlchemy 2.0 async + Alembic | Tailwind 3 + shadcn/ui |
 | Postgres (Coolify local / Neon / SQLite dev) | TanStack React Query + react-router |
 | `sse-starlette` for live streaming | `EventSource` + reducer hook |
-| `passlib[bcrypt]` + PyJWT for auth | Playwright + Vitest for tests |
+| `bcrypt` + PyJWT for auth | Playwright + Vitest for tests |
 | Fernet for at-rest API-key encryption | react-markdown + remark-gfm |
 
 ## 60-second local dev loop
@@ -41,7 +41,7 @@ cd web/frontend && npm install            # frontend deps
 # Boot the backend (in one terminal):
 cd web/backend
 export ADMIN_USERNAME=admin
-export ADMIN_PASSWORD_HASH="$(python -c 'from passlib.hash import bcrypt; print(bcrypt.hash(\"password\"))')"
+export ADMIN_PASSWORD_HASH="$(python -c 'import bcrypt; print(bcrypt.hashpw(b\"password\", bcrypt.gensalt(12)).decode())')"
 export JWT_SECRET="$(openssl rand -hex 32)"
 export FERNET_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export DATABASE_URL=sqlite+aiosqlite:///./dev.db

@@ -50,6 +50,20 @@ for the per-deploy cut workflow.
 
 ### Security
 
+- **passlib replaced by `bcrypt` directly; bcrypt 3.2 → 5.0.** passlib has
+  had no release since 2020, and its broken version probe forced a
+  `bcrypt<4.0` pin, holding the password-hashing library two majors behind.
+  `app/auth.py` now calls `bcrypt.hashpw` / `checkpw`. Every stored hash was
+  made by passlib, so real passlib `$2b$` and `$2a$` hashes (plus the
+  `ADMIN_PASSWORD_HASH_B64` form) are pinned in
+  `tests/test_password_hashing.py` and verify unchanged on bcrypt 5. The
+  hash recipes in `DEPLOY.md` and `web/README.md` no longer need passlib.
+- **A password longer than 72 bytes no longer logs in as its first 72
+  bytes.** bcrypt reads only 72 bytes, and passlib silently truncated
+  longer input, so `x`×73 authenticated an account whose password was
+  `x`×72 — two different passwords for one account. Account creation
+  already rejected such passwords; login now refuses them too.
+
 ## [0.3.1+hf.5] — 2026-08-05
 
 ### Fixed

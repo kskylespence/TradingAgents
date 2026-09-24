@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from passlib.hash import bcrypt
+from app.auth import hash_password
 
 TEST_ADMIN_ID = "00000000-0000-0000-0000-000000000001"
 TEST_USER_ID = "00000000-0000-0000-0000-000000000002"
@@ -46,7 +46,7 @@ async def seed_regular_user(
         User(
             id=user_id,
             username=username,
-            password_hash=bcrypt.hash(password),
+            password_hash=hash_password(password),
             role="user",
         )
     )

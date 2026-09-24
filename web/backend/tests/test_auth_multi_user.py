@@ -8,8 +8,8 @@ from collections.abc import AsyncIterator
 from datetime import date, datetime, timezone
 
 import pytest
+from app.auth import hash_password
 from fastapi.testclient import TestClient
-from passlib.hash import bcrypt
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.helpers import (
@@ -21,7 +21,7 @@ from tests.helpers import (
 )
 
 PASSWORD = "password"
-PASSWORD_HASH = bcrypt.hash(PASSWORD)
+PASSWORD_HASH = hash_password(PASSWORD)
 USER_PASSWORD = "user-password"
 
 

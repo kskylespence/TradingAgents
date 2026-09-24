@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     admin_password_hash: str = Field(
         default="",
         description=(
-            "bcrypt hash (always 60 chars), produced by passlib.hash.bcrypt. "
+            "bcrypt hash (always 60 chars), e.g. from bcrypt.hashpw. "
             "Provide via ADMIN_PASSWORD_HASH OR ADMIN_PASSWORD_HASH_B64 — "
             "the post-validator promotes the b64 fallback if the direct "
             "field is empty. min_length is checked in the post-validator "
