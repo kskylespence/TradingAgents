@@ -203,8 +203,8 @@ def _row_to_defaults(row: UserDefaultsModel | None) -> UserDefaults:
 
     If ``row`` is None, returns the Pydantic defaults (``enable_checkpoint=True``,
     ``research_depth=1``, ``analysts=["market","social"]``,
-    ``llm_provider="ollama"``, ``quick_think_llm`` / ``deep_think_llm`` =
-    ``"glm-5.2"``). The ``ThinkingConfig`` sub-object is stored as a JSON blob — Pydantic re-validates it on construction, so a malformed
+    ``llm_provider="ollama"``, ``quick_think_llm="glm-5.3-flash"``,
+    ``deep_think_llm="glm-5.3"``). The ``ThinkingConfig`` sub-object is stored as a JSON blob — Pydantic re-validates it on construction, so a malformed
     blob would surface here as a 500. That's fine: it would mean the DB
     was hand-edited to an invalid state and the operator should know.
     """

@@ -12,7 +12,7 @@ Why a ``curated: bool`` field, not a filter:
   bottom and badge them so the user can make an informed choice.
 
   The curated set is a snapshot of the upstream catalog as of
-  2026-05-23. See ``app.services.ollama_curated`` for the policy and
+  2026-09-24. See ``app.services.ollama_curated`` for the policy and
   refresh cadence.
 
 Non-Ollama providers MUST NOT carry the field — their model catalogs
@@ -61,8 +61,11 @@ def test_is_curated_function() -> None:
     from app.services.ollama_curated import is_curated
 
     # A known-curated model (in the snapshot).
+    assert is_curated("glm-5.3") is True
+    assert is_curated("glm-5.3-flash") is True
     assert is_curated("glm-5.2") is True
     assert is_curated("glm-5.1") is True
+    assert is_curated("deepseek-v4.1-flash") is True
     # A known-deprioritised model (ollama/ollama#15453).
     assert is_curated("kimi-k2-thinking") is False
     # Empty string — defensive: a malformed upstream entry shouldn't

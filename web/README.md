@@ -67,7 +67,8 @@ user saves different choices in **Settings**:
 | `research_depth` | `1` (Shallow) |
 | `analysts` | `market`, `social` (Sentiment) |
 | `llm_provider` | `ollama` |
-| `quick_think_llm` / `deep_think_llm` | `glm-5.2` |
+| `quick_think_llm` | `glm-5.3-flash` |
+| `deep_think_llm` | `glm-5.3` |
 
 The [lite VPS env preset](docs/operations.md#lite-vps-preset) mirrors these
 for Coolify (`TRADINGAGENTS_*` vars). Deploy walk-through:

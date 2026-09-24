@@ -2,9 +2,9 @@
 
 What this is
 ============
-``CURATED_2026_08`` is a frozen membership set of model **base names**
+``CURATED_2026_09`` is a frozen membership set of model **base names**
 that appeared in Ollama's official curated cloud catalog at
-https://ollama.com/search?c=cloud on 2026-08-05. The catalog endpoint
+https://ollama.com/search?c=cloud on 2026-09-24. The catalog endpoint
 flags every Ollama model with ``curated: bool`` derived from this set
 so the frontend can sort safer-known options first and badge the rest.
 
@@ -30,12 +30,12 @@ The snapshot is a point-in-time copy, not a live mirror. Ollama doesn't
 publish a stable manifest of the curated set and we don't want a
 runtime dependency on scraping their search page. Refresh policy:
 
-* **Cadence:** quarterly review. The next due date is 2026-11-05.
+* **Cadence:** quarterly review. The next due date is 2026-12-24.
 * **Triggered:** also bump immediately when a user reports a new
   curated model isn't being prioritised, or when Ollama publishes a new
   base model.
 * **Process:** load https://ollama.com/search?c=cloud, copy the **base
-  names** into ``CURATED_2026_08``, rename the constant to the new date,
+  names** into ``CURATED_2026_09``, rename the constant to the new date,
   and bump the snapshot date in the docstring above. Do NOT paste tagged
   IDs from ``/v1/models`` — ``is_curated`` strips the tag before the
   lookup, so a tagged entry is dead weight that can never match. The
@@ -58,7 +58,7 @@ mid-request. Mutability would also defeat the snapshot semantics.
 
 from __future__ import annotations
 
-#: Snapshot of https://ollama.com/search?c=cloud taken 2026-08-05.
+#: Snapshot of https://ollama.com/search?c=cloud taken 2026-09-24.
 #:
 #: **Base names only — never tags.** ``is_curated`` strips the ``:tag``
 #: before the lookup, so ``deepseek-v4-flash`` covers ``:0731`` and
@@ -67,9 +67,11 @@ from __future__ import annotations
 #:
 #: Order is irrelevant (set semantics) but kept roughly grouped by
 #: model family for readability when reviewing the next refresh diff.
-CURATED_2026_08: frozenset[str] = frozenset(
+CURATED_2026_09: frozenset[str] = frozenset(
     {
         # Z.AI GLM family
+        "glm-5.3",
+        "glm-5.3-flash",
         "glm-5.2",
         "glm-5.1",
         # Moonshot Kimi family
@@ -81,6 +83,7 @@ CURATED_2026_08: frozenset[str] = frozenset(
         # DeepSeek family
         "deepseek-v4-pro",
         "deepseek-v4-flash",
+        "deepseek-v4.1-flash",
         # OpenAI OSS family
         "gpt-oss",
         # NVIDIA Nemotron family
@@ -130,7 +133,7 @@ def is_curated(model_id: str) -> bool:
         # ``":latest"`` and friends — an empty base must not be treated as
         # a match against anything.
         return False
-    return base in CURATED_2026_08
+    return base in CURATED_2026_09
 
 
-__all__ = ["CURATED_2026_08", "is_curated"]
+__all__ = ["CURATED_2026_09", "is_curated"]

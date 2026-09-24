@@ -6,7 +6,13 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Run, UserDefaults as UserDefaultsModel
-from ..schemas import AuthUser, RunRequest, UserDefaults
+from ..schemas import (
+    DEFAULT_DEEP_MODEL,
+    DEFAULT_QUICK_MODEL,
+    AuthUser,
+    RunRequest,
+    UserDefaults,
+)
 
 
 def user_can_access_run(user: AuthUser, row: Run) -> bool:
@@ -54,8 +60,8 @@ async def apply_admin_defaults_for_user(
     """Override LLM-related fields from admin defaults for regular users."""
     defaults = await load_admin_defaults(db)
     provider = defaults.llm_provider or "ollama"
-    quick = defaults.quick_think_llm or "glm-5.2"
-    deep = defaults.deep_think_llm or "glm-5.2"
+    quick = defaults.quick_think_llm or DEFAULT_QUICK_MODEL
+    deep = defaults.deep_think_llm or DEFAULT_DEEP_MODEL
     language = defaults.output_language or "English"
     checkpoint = (
         defaults.enable_checkpoint if defaults.enable_checkpoint is not None else True

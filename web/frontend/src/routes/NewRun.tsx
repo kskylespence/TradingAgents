@@ -394,8 +394,8 @@ export default function NewRun() {
         .filter((k) => selectedAnalysts.has(k)),
       research_depth: researchDepth,
       llm_provider: isAdmin ? provider : "ollama",
-      quick_think_llm: isAdmin ? effectiveQuickModel : "glm-5.2",
-      deep_think_llm: isAdmin ? effectiveDeepModel : "glm-5.2",
+      quick_think_llm: isAdmin ? effectiveQuickModel : "glm-5.3-flash",
+      deep_think_llm: isAdmin ? effectiveDeepModel : "glm-5.3",
       enable_checkpoint: isAdmin ? enableCheckpoint : true,
     };
     if (isAdmin && provider === "openai") body.openai_reasoning_effort = openaiEffort;

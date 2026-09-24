@@ -324,8 +324,8 @@ def test_get_defaults_returns_default_shape(settings_client: TestClient) -> None
     assert body["research_depth"] == 1
     assert body["analysts"] == ["market", "social"]
     assert body["llm_provider"] == "ollama"
-    assert body["quick_think_llm"] == "glm-5.2"
-    assert body["deep_think_llm"] == "glm-5.2"
+    assert body["quick_think_llm"] == "glm-5.3-flash"
+    assert body["deep_think_llm"] == "glm-5.3"
     for optional in (
         "output_language",
         "thinking_config",

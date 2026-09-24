@@ -644,6 +644,46 @@ def test_suggested_alternatives_pins_tagged_headline_model(
     )
 
 
+def test_suggested_alternatives_pins_newest_glm_first(
+    runs_client, monkeypatch
+) -> None:
+    """The newest GLM release leads the suggestions: 5.3, then 5.3-flash, then 5.2.
+
+    Alphabetical order alone would put ``glm-5.2`` ahead of ``glm-5.3`` and
+    let ``deepseek-v4-pro`` take a slot, so with the cap at 3 the newest
+    flagship would sit behind the model it replaced.
+    """
+    client, _calls = runs_client
+    _install_probe_fake(
+        monkeypatch,
+        responses={
+            "broken-quick": {"raise": httpx.ReadTimeout("rip")},
+            "broken-deep": {"raise": httpx.ReadTimeout("rip")},
+            "deepseek-v4-pro": None,
+            "glm-5.2": None,
+            "glm-5.3": None,
+            "glm-5.3-flash": None,
+        },
+        models_listing=[
+            "deepseek-v4-pro",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "broken-quick",
+            "broken-deep",
+        ],
+    )
+
+    resp = _post(
+        client,
+        _build_body(quick_think_llm="broken-quick", deep_think_llm="broken-deep"),
+    )
+
+    assert resp.status_code == 400, resp.text
+    alternatives = resp.json()["detail"]["suggested_alternatives"]
+    assert alternatives == ["glm-5.3", "glm-5.3-flash", "glm-5.2"]
+
+
 def test_probe_cache_dedup(runs_client, monkeypatch) -> None:
     """Two POSTs in the same TTL window should issue exactly one upstream probe."""
     client, _calls = runs_client

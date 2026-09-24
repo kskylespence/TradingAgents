@@ -43,7 +43,7 @@ silently runs with a publicly-known dev string.
 | `COOLIFY_FQDN` | unset | Auto-injected by Coolify. Used for CSP construction. |
 | `COOLIFY_URL` | unset | Auto-injected by Coolify. Used for CSP construction. |
 | `FAKE_LLM` | unset | When `=1`, `run_service._run_engine` short-circuits to a scripted simulator (~0.3 s, always returns Buy). Dev and test only — never set in prod. |
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Where the catalog's live-discovery service points when listing Ollama models, and where the engine sends chat completions. Set to `https://ollama.com/v1` for Ollama Cloud. **Setting this env var is what makes Ollama appear in the provider dropdown** — `tradingagents.providers.available_providers()` treats unset = "not configured". |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Where the catalog's live-discovery service points when listing Ollama models, and where the engine sends chat completions. Set to `https://ollama.com/v1` for Ollama Cloud — model IDs are then the bare names `/models` returns (`glm-5.3`, not `glm-5.3:cloud`; the `:cloud` suffix is only for the local Ollama app/CLI). **Setting this env var is what makes Ollama appear in the provider dropdown** — `tradingagents.providers.available_providers()` treats unset = "not configured". |
 | `OLLAMA_API_KEY` | unset | Bearer token forwarded as `Authorization: Bearer <key>` on every Ollama request. Required for Ollama Cloud; unset (or any value) is fine for a local `ollama serve` that doesn't auth. |
 | `TRADINGAGENTS_LLM_PROVIDER` | unset | Provider key (e.g. `ollama`, `openai`). Read by `/api/health` to decide whether to include the `ollama` upstream-probe block in the response — set this when deploying so the health endpoint surfaces upstream reachability honestly. Used as a default by the engine path too. |
 | `TRADINGAGENTS_LLM_MAX_RETRIES` | `5` for cloud providers, `2` for native `openai` | Overrides the per-provider default `max_retries` passed to the OpenAI-compatible chat client. The vendored SDK's bare default (`2` with sub-second backoff) burns through 3 attempts in under 2 seconds, which lost a real-world run when Ollama Cloud was 500-ing — `5` gives a ~32-second envelope with exponential backoff and jitter. Bump this if your provider's transients run longer than 30 seconds; drop it if you want to fail fast. Explicit `max_retries` kwarg passed by callers still wins. |
@@ -58,8 +58,8 @@ your first analysis run:
 
 ```env
 TRADINGAGENTS_LLM_PROVIDER=ollama
-TRADINGAGENTS_QUICK_THINK_LLM=glm-5.2
-TRADINGAGENTS_DEEP_THINK_LLM=glm-5.2
+TRADINGAGENTS_QUICK_THINK_LLM=glm-5.3-flash
+TRADINGAGENTS_DEEP_THINK_LLM=glm-5.3
 TRADINGAGENTS_MAX_DEBATE_ROUNDS=1
 TRADINGAGENTS_MAX_RISK_ROUNDS=1
 TRADINGAGENTS_RUN_MAX_SECONDS=1200
@@ -75,10 +75,10 @@ In the **New Run** UI (per-run overrides):
 
 - **Research depth**: Shallow (1)
 - **Analysts**: Market + Sentiment only (skip News and Fundamentals)
-- **Models**: `glm-5.2` quick + deep (default); avoid thinking models on small VPS
+- **Models**: `glm-5.3-flash` quick + `glm-5.3` deep (default); avoid thinking models on small VPS
 
 Fresh installs also get `research_depth=1`, `analysts=["market","social"]`,
-`llm_provider=ollama`, and `glm-5.2` for both model slots from
+`llm_provider=ollama`, `glm-5.3-flash` (quick) and `glm-5.3` (deep) from
 `GET /api/settings/defaults` until the user saves different choices.
 
 See [VPS troubleshooting](#vps-troubleshooting) if the host shut down during

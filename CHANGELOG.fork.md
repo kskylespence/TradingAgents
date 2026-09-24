@@ -18,6 +18,28 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+- **Default Ollama Cloud models are now `glm-5.3-flash` (quick) and `glm-5.3`
+  (deep), up from `glm-5.2` for both.** GLM 5.3 is Z.AI's new flagship. The
+  quick slot runs every analyst and debate turn, so it gets the cheaper flash
+  model; the deep slot runs the three decision-making agents, so it gets the
+  full one. Before the switch, both models were checked live against
+  `https://ollama.com/v1` through the repo's own client: each made a correct
+  tool call and returned a valid structured `PortfolioDecision` on the default
+  capability settings, so no `capabilities.py` row was needed. The IDs are the
+  bare names `/v1/models` returns — the `:cloud` suffix is only for the local
+  Ollama app/CLI and is wrong against the direct API. The two defaults now
+  live in one place (`DEFAULT_QUICK_MODEL` / `DEFAULT_DEEP_MODEL` in
+  `web/backend/app/schemas.py`); previously the schema default and the
+  regular-user fallback in `run_access.py` each hard-coded their own copy.
+  **An existing saved admin default still wins** — a deployment whose
+  Settings page already saved `glm-5.2` keeps using it until an admin changes
+  it there.
+- **Curated Ollama snapshot refreshed to 2026-09-24 (`CURATED_2026_09`).**
+  Adds `glm-5.3`, `glm-5.3-flash` and `deepseek-v4.1-flash`; nothing was
+  retired. Without this, the new defaults would carry the "not curated"
+  warning badge in the model picker. Suggested alternatives now pin
+  `glm-5.3` → `glm-5.3-flash` → `glm-5.2` to the front.
+
 ### Fixed
 
 ### Removed
