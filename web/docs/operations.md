@@ -35,7 +35,7 @@ silently runs with a publicly-known dev string.
 | Name | Default | What it does |
 |---|---|---|
 | `JWT_TTL_SECONDS` | `604800` (7 days) | How long an issued JWT is valid. Rotating this does not retroactively shorten existing tokens. Also the window during which a **deleted** user keeps access — see [User accounts](#user-accounts). |
-| `ROB_INITIAL_PASSWORD` | unset | **Legacy.** Seeds a single hardcoded `rob@rob` account on first boot if it doesn't already exist (`services/users.py:ensure_rob_user`). Superseded by the Settings-page user management — prefer that for new accounts. Kept because removing it would delete an existing account on a live deployment. |
+| `ROB_INITIAL_PASSWORD` | — | **Removed in 0.5.1+hf.1; ignored if still set.** It seeded a hardcoded `rob@rob` account whenever the row was missing, so deleting that account in the Users UI only lasted until the next restart. Existing accounts are unaffected by the removal. Create accounts in Settings → Users. Delete the variable from the deploy environment. |
 | `DATA_DIR` | `/data/tradingagents` | Where reports, checkpoints, and the memory log live. Must match the Coolify volume mount path. |
 | `RETENTION_DAYS` | `90` | How old report dirs and checkpoint files must be before the [disk pruner](#disk-pruner) deletes them. |
 | `APP_ENV` | `development` | Free-form label surfaced in `backend.startup` logs. Set to `production` in prod. |

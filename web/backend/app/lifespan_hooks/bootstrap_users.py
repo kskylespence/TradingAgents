@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 @on_startup
 async def sync_users(_app: FastAPI) -> None:
-    """Upsert admin from env and seed rob@rob when configured."""
+    """Upsert the admin from env."""
     try:
         await bootstrap_users()
     except Exception:

@@ -74,6 +74,14 @@ for the per-deploy cut workflow.
   longer input, so `x`×73 authenticated an account whose password was
   `x`×72 — two different passwords for one account. Account creation
   already rejected such passwords; login now refuses them too.
+- **A deleted `rob@rob` account no longer comes back on restart.** Startup
+  re-created the hardcoded `rob@rob` user, with the original bootstrap
+  password, whenever `ROB_INITIAL_PASSWORD` was set and the row was
+  missing — so deleting it in the Users UI lasted only until the next
+  deploy. The seeder is removed; the admin UI (Settings → Users) is how
+  accounts are made. Existing accounts are untouched, and the leftover
+  variable is ignored (settings use `extra="ignore"`), but it should be
+  deleted from the deploy environment.
 - **The Docker image installs exact, hash-checked dependencies.** Every
   Python dependency was a `>=` floor with no lockfile, so each deploy
   installed whatever was newest that minute: no two builds were the same,
