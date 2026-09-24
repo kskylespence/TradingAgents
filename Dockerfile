@@ -2,13 +2,13 @@
 #
 # TradingAgents — Coolify-deployable single-image build.
 #
-# Stage 1 (fe): Node 20 builds the Vite/React frontend.
+# Stage 1 (fe): Node 24 LTS builds the Vite/React frontend.
 # Stage 2 (be): Python 3.12-slim runtime that hosts FastAPI + the bundled SPA.
 #
 # Licensed under the Apache License, Version 2.0. See LICENSE for terms.
 
 # ---- frontend build ----
-FROM node:20-alpine AS fe
+FROM node:24-alpine AS fe
 WORKDIR /fe
 COPY web/frontend/package*.json ./
 RUN npm ci
@@ -26,18 +26,26 @@ RUN npm run build && test -s /backend/app/static/index.html
 # ---- python runtime ----
 FROM python:3.12-slim AS be
 WORKDIR /app
+# No compiler: every locked package ships a prebuilt wheel, and a runtime
+# image without one is smaller and gives an attacker less to work with.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential libpq5 curl \
+      libpq5 curl \
     && rm -rf /var/lib/apt/lists/*         # curl: needed for Coolify's UI health check
+# Third-party packages come from requirements.lock only, each wheel checked
+# against its sha256 — a changed or hijacked release fails the build instead
+# of shipping. Regenerate the lock per docs/RELEASING.md §2.3.
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY pyproject.toml .
 COPY tradingagents ./tradingagents
 COPY cli ./cli
 COPY web/backend ./web/backend
-# Install the parent `tradingagents` package first so the backend's
-# path-dependency on it resolves. Without this, `pip install ./web/backend`
-# cannot find a `tradingagents` distribution and the build fails.
-RUN pip install --no-cache-dir . \
- && pip install --no-cache-dir ./web/backend
+# The two local packages, without letting pip resolve or download anything:
+# --no-build-isolation builds them with the setuptools the lock installed.
+# The parent `tradingagents` is named first so the backend's
+# path-dependency on it is already satisfied.
+RUN pip install --no-cache-dir --no-deps --no-build-isolation . ./web/backend \
+ && pip check
 COPY --from=fe /backend/app/static /app/web/backend/app/static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

@@ -272,6 +272,33 @@ When upstream tags a new release (e.g. `v0.2.6`):
    when diagnosing "what upstream version is this fork actually
    based on?"
 
+4. Regenerate `requirements.lock` (section 2.3). Upstream releases
+   add and drop dependencies; a stale lock either fails the Docker
+   build or ships without a package the new code imports.
+
+### 2.3 Regenerate the lockfile
+
+The Docker image installs exact versions from `requirements.lock`, with
+every wheel's sha256 checked (`pip install --require-hashes`), then the
+two local packages with `--no-deps`. `pyproject.toml` and
+`web/backend/pyproject.toml` only declare floors. Regenerate the lock
+after changing either pyproject, after an upstream sync, and whenever
+Dependabot or `pip-audit` reports an advisory:
+
+```bash
+uv pip compile --universal --python-version 3.12 --generate-hashes \
+  --no-emit-package tradingagents --no-emit-package tradingagents-web-backend \
+  --custom-compile-command 'see docs/RELEASING.md "Regenerate the lockfile"' \
+  pyproject.toml web/backend/pyproject.toml requirements-build.in -o requirements.lock
+uvx pip-audit -r requirements.lock --require-hashes --disable-pip   # expect: No known vulnerabilities found
+```
+
+`--universal` makes one lock valid on both the Linux build host and a
+developer's Mac. Runtime dependencies plus the setuptools build backend
+(`requirements-build.in`, so the local packages build with
+`--no-build-isolation` and nothing is fetched unpinned); the dev extras
+are installed separately for tests.
+
 ## 3. Hotfix workflow
 
 Occasionally a fix needs to land on `main` without an immediate

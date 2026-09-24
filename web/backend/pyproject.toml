@@ -15,6 +15,9 @@ dependencies = [
     # uv source mapping below.
     "tradingagents",
     "fastapi>=0.115",
+    # Imported directly (middleware, responses, static files), so it gets its
+    # own floor rather than whatever fastapi happens to allow.
+    "starlette>=1.3.1",
     "uvicorn[standard]>=0.32",
     "sse-starlette>=2.1",
     "pydantic>=2.9",
@@ -26,24 +29,20 @@ dependencies = [
     # no release since 2020 and forced bcrypt below 4.0. Hashes passlib
     # produced ($2a$/$2b$) verify unchanged — tests/test_password_hashing.py.
     "bcrypt>=4.3",
-    "pyjwt>=2.10",
-    "cryptography>=44",
-    "python-multipart>=0.0.20",
+    "pyjwt>=2.13.0",
+    "cryptography>=50.0.0",
+    "python-multipart>=0.0.31",
     "httpx[http2]>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3",
-    # Capped below 1.0 deliberately. pytest-asyncio 1.x changed per-test
-    # event-loop and fixture finalisation: `test_rate_limit.py` fixtures die
-    # with "RuntimeError: There is no current event loop in thread
-    # 'MainThread'" and three `test_runs_preflight_probe.py` tests fail. With
-    # an uncapped `>=0.24` a fresh install silently resolves to 1.x and the
-    # suite goes from all-green to 3 failed / 5 errors. The `pytest` major
-    # version is NOT the trigger — 8.x and 9.x behave identically here.
-    # Lift the cap only alongside a migration to the 1.x loop-scope API.
-    "pytest-asyncio>=0.24,<1.0",
+    "pytest>=9.0.3",
+    # The old <1.0 cap (fixtures in test_rate_limit.py and
+    # test_runs_preflight_probe.py failed under 1.x) was lifted in
+    # 0.5.1+hf.1: the full suite passes on 1.4, and pytest-asyncio 0.x
+    # requires pytest<9, which blocked pytest's /tmp fix (CVE-2025-71176).
+    "pytest-asyncio>=1.0",
     "pytest-postgresql>=6.1",
     # pytest-postgresql imports psycopg, which needs libpq at *collection*
     # time (the plugin auto-loads via entry points even for tests that never
@@ -51,7 +50,7 @@ dev = [
     # without it a machine with no system libpq — e.g. macOS without
     # Homebrew — aborts the whole session before a single test runs.
     "psycopg[binary]>=3.1",
-    "anyio>=4.6",
+    "anyio>=4.14.2",
     "aiosqlite>=0.20",
     "greenlet>=3.0",
 ]

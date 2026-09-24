@@ -1,0 +1,5 @@
+# Build backend for the two local packages (build-system.requires in both
+# pyproject.toml files). Locked with the runtime dependencies so the Docker
+# build installs it hash-checked and builds with --no-build-isolation,
+# instead of pip fetching an unpinned setuptools from PyPI.
+setuptools>=80.9.0
