@@ -161,7 +161,7 @@ class TestTransientRetryPolicy:
 
 
 class TestCompileSitesUsePolicy:
-    """The three workflow.compile() sites in TradingAgentsGraph must apply the policy.
+    """Every workflow.compile() site in TradingAgentsGraph must apply the policy.
 
     Since the installed LangGraph version attaches retry_policy on nodes (not on
     compile), the production code must mutate workflow.nodes to set retry_policy
@@ -188,3 +188,28 @@ class TestCompileSitesUsePolicy:
                 # Sequence form
                 assert len(policy) >= 1, f"node {name!r} has empty policy sequence"
                 assert policy[0] is _TRANSIENT_RETRY_POLICY
+
+    def test_compiled_graph_keeps_policy_across_checkpoint_recompiles(
+        self, tmp_path, monkeypatch
+    ):
+        """Every compile of TradingAgentsGraph.workflow — at construction, when a
+        checkpointed run recompiles with a saver, and when it restores the plain
+        graph — must yield nodes that carry the policy. The policy is stamped once
+        in __init__, so this pins that the recompiles reuse the stamped specs."""
+        from tests.test_graph_end_to_end import ScriptedModel, _graph
+
+        graph = _graph(tmp_path, monkeypatch, ScriptedModel(), checkpoint_enabled=True)
+
+        def assert_policy_on_every_node(stage):
+            nodes = {n: p for n, p in graph.graph.nodes.items() if n != "__start__"}
+            assert nodes, f"{stage}: compiled graph has no nodes"
+            for name, node in nodes.items():
+                policy = node.retry_policy
+                policies = [policy] if isinstance(policy, RetryPolicy) else list(policy or [])
+                assert _TRANSIENT_RETRY_POLICY in policies, f"{stage}: node {name!r} has no retry policy"
+
+        assert_policy_on_every_node("construction")
+        assert graph.begin_checkpoint("NVDA", "2026-01-09") is not None
+        assert_policy_on_every_node("checkpoint recompile")
+        graph.end_checkpoint()
+        assert_policy_on_every_node("restored plain graph")

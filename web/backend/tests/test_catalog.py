@@ -108,9 +108,12 @@ def test_models_openai_quick_returns_at_least_one_entry(
     for m in body:
         assert set(m.keys()) == {"id", "label", "allows_custom"}
         assert isinstance(m["allows_custom"], bool)
-    # OpenAI's static catalog has no "custom" entry, so allows_custom is
-    # False for every model — there is no synthetic __custom__ tail entry.
-    assert all(m["id"] != "__custom__" for m in body)
+    # Upstream v0.5 added a "Custom model ID" option to OpenAI's static list,
+    # so the catalog ends with exactly one synthetic __custom__ entry and it is
+    # the only one that allows a free-text model id.
+    assert [m["id"] for m in body].count("__custom__") == 1
+    assert body[-1] == {"id": "__custom__", "label": "Custom model ID", "allows_custom": True}
+    assert not any(m["allows_custom"] for m in body[:-1])
 
 
 def test_models_deepseek_quick_includes_synthetic_custom_entry(

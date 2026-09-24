@@ -44,7 +44,7 @@ Security
 --------
 The user-supplied ``ticker`` is preserved verbatim in the DB column (we
 store user input) but is filtered through
-:func:`tradingagents.dataflows.utils.safe_ticker_component` whenever it
+:func:`tradingagents.dataflows.symbols.safe_ticker_component` whenever it
 reaches a filesystem path (e.g. ``report_dir`` under
 ``settings.data_dir / "logs"``). The CLAUDE.md security note is the
 canonical reference; do not bypass.
@@ -78,12 +78,10 @@ from app.services import env_inject, event_bus
 # Imports from the engine — kept module-scope so tests can monkeypatch
 # them (e.g. ``monkeypatch.setattr(run_service, "stream_run", ...)``)
 # without touching the engine package itself.
-from tradingagents.agents.utils.rating import parse_rating
-from tradingagents.dataflows.utils import safe_ticker_component
-from tradingagents.graph.analyst_execution import (
-    AnalystWallTimeTracker,
-    build_analyst_execution_plan,
-)
+from cli.display import AnalystWallTimeTracker
+from tradingagents.agents.rating import parse_rating
+from tradingagents.dataflows.symbols import safe_ticker_component
+from tradingagents.graph.analyst_execution import build_analyst_execution_plan
 from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV
 from tradingagents.run_observer import ANALYST_AGENT_NAMES, stream_run
 from tradingagents.stats_handler import StatsCallbackHandler

@@ -108,7 +108,7 @@ def has_checkpoint(ticker: str, analysis_date: date) -> bool:
     """
     # Lazy import so this module can be imported even if the
     # tradingagents package can't be installed in some test envs.
-    from tradingagents.dataflows.utils import safe_ticker_component
+    from tradingagents.dataflows.symbols import safe_ticker_component
 
     try:
         safe = safe_ticker_component(ticker).upper()

@@ -276,9 +276,7 @@ def stream_run(
 
         # Analyst statuses (mirrors original update_analyst_statuses)
         if wall_time_tracker is not None:
-            from tradingagents.graph.analyst_execution import (
-                sync_analyst_tracker_from_chunk,
-            )
+            from cli.display import sync_analyst_tracker_from_chunk
 
             sync_analyst_tracker_from_chunk(wall_time_tracker, chunk)
 

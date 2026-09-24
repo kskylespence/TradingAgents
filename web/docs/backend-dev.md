@@ -351,8 +351,8 @@ re-derive.
 | Abstract observer base class | `tradingagents.run_observer.RunObserver` |
 | Engine's analyst display names | `tradingagents.run_observer.ANALYST_AGENT_NAMES` |
 | Analyst → report-section key map | `tradingagents.run_observer.ANALYST_REPORT_MAP` |
-| Ticker filesystem safety | `tradingagents.dataflows.utils.safe_ticker_component` |
-| 5-tier rating values | `tradingagents.agents.utils.rating.RATINGS_5_TIER` |
+| Ticker filesystem safety | `tradingagents.dataflows.symbols.safe_ticker_component` |
+| 5-tier rating values | `tradingagents.agents.rating.RATINGS_5_TIER` |
 | Pydantic event shapes | `app.schemas.RunEvent` (discriminated union) |
 | Fernet encrypt/decrypt | `app.crypto.{encrypt, decrypt, reset_cache}` |
 

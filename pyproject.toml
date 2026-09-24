@@ -4,31 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tradingagents"
-version = "0.3.1+hf.5"
+version = "0.5.1+hf.1"
 description = "TradingAgents: Multi-Agents LLM Financial Trading Framework"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain-core>=0.3.81",
-    "backtrader>=1.9.78.123",
     "langchain-anthropic>=0.3.15",
-    "langchain-experimental>=0.3.4",
     "langchain-google-genai>=4.0.0",
     "langchain-openai>=0.3.23",
     "langgraph>=0.4.8",
     "langgraph-checkpoint-sqlite>=2.0.0",
     "pandas>=2.3.0",
-    "parsel>=1.10.0",
     "python-dotenv>=1.0.0",
     "pytz>=2025.2",
     "questionary>=2.1.0",
-    "redis>=6.2.0",
     "requests>=2.32.4",
     "rich>=14.0.0",
     "typer>=0.21.0",
-    "setuptools>=80.9.0",
     "stockstats>=0.6.5",
-    "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
     "yfinance>=1.4.1",
     "tenacity>=8.5",
@@ -75,7 +69,7 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["results", "worklog", "web/backend/build"]
+extend-exclude = ["results", "web/backend/build"]
 
 [tool.ruff.lint]
 # Standard "good defaults" rule set (pyflakes + pycodestyle + isort + bugbear +
@@ -89,7 +83,7 @@ ignore = ["E501"]
 "**/__init__.py" = ["F401"]   # intentional re-exports
 "web/backend/app/routers/*.py" = ["B008"]  # FastAPI Depends() in defaults
 "web/backend/app/auth.py" = ["B008"]  # FastAPI Depends() in defaults
-"cli/utils.py" = ["F401"]  # re-exports detect_asset_type for tests/CLI
+"cli/prompts.py" = ["F401"]  # re-exports detect_asset_type for tests/CLI
 "run_crm.py" = ["E402"]  # UTF-8 stdout reconfigure must precede imports
 "tradingagents/run_observer.py" = ["B024", "B027"]  # optional callback ABC
 "web/backend/app/**/*.py" = ["SIM105", "SIM108"]
@@ -97,5 +91,5 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block
-# (e.g. the vendor re-exports in interface.py) instead of one statement per name.
+# (e.g. the vendor imports in router.py) instead of one statement per name.
 combine-as-imports = true

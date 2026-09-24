@@ -134,7 +134,8 @@ What happens between the user clicking **Submit** and the
    comments every 15 seconds so any reverse proxy's idle-connection
    timeout doesn't close the stream.
 10. When the engine returns, the run row flips to `completed`,
-    `signal_processor.process_signal(...)` parses the rating, the
+    `_finalize_completion` parses the rating with
+    `tradingagents.agents.rating.parse_rating` (default `Hold`), the
     report is materialized to
     `<data_dir>/logs/<safe_ticker>/<date>/reports/`, and
     `run_completed` is published with the rating + report dir.

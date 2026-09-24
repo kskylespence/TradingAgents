@@ -13,7 +13,7 @@ CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
 
 
 def detect_asset_type(ticker: str) -> AssetType:
-    from tradingagents.dataflows.symbol_utils import crypto_base
+    from tradingagents.dataflows.symbols import crypto_base
 
     normalized_ticker = ticker.strip().upper()
     if normalized_ticker.endswith(CRYPTO_SUFFIXES):
