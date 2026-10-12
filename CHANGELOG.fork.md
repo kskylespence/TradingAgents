@@ -18,6 +18,18 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+### Security
+
+## [0.6.0+hf.1] — 2026-10-12
+
+### Added
+
+### Changed
+
 - **Frontend stack to current majors.** React 19, React Router 8
   (`react-router-dom` → `react-router`), Vite 8, Vitest 5, Tailwind CSS 4,
   TypeScript 7, lucide-react 1, Radix and TanStack Query to latest; zod
@@ -1083,7 +1095,8 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...HEAD
+[0.6.0+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...v0.6.0-hf.1
 [0.3.1+hf.5]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...v0.3.1-hf.5
 [0.3.1+hf.4]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1...v0.3.1-hf.4
 [0.2.5+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.2.5...v0.2.5-hf.1
