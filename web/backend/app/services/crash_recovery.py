@@ -43,7 +43,7 @@ orphan out of ``'running'``.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -149,7 +149,7 @@ async def _emit_interrupted_terminal(
         RunEventModel(
             run_id=_uuid_for_db(run_id),
             seq=seq,
-            ts=datetime.now(timezone.utc),
+            ts=datetime.now(UTC),
             type="run_failed",
             payload=payload,
         )
@@ -191,7 +191,7 @@ async def run_startup_recovery(db: AsyncSession) -> list[UUID]:
             resumable = False
 
         run.status = "interrupted"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         if not run.error_message:
             run.error_message = _INTERRUPTED_ERROR_MESSAGE
 

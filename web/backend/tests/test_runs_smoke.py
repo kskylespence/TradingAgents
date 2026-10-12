@@ -19,7 +19,7 @@ import json
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -414,7 +414,7 @@ def test_resume_happy_path_returns_new_run_id(
     ``web/frontend/src/routes/RunView.tsx::resumeMutation``).
     """
     import uuid as _uuid
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from app.config import get_settings
     from app.models import Run
@@ -457,7 +457,7 @@ def test_resume_happy_path_returns_new_run_id(
                     output_language="English",
                     checkpoint_enabled=True,
                     status="interrupted",
-                    started_at=datetime(2026, 5, 19, 12, tzinfo=timezone.utc),
+                    started_at=datetime(2026, 5, 19, 12, tzinfo=UTC),
                     finished_at=None,
                 )
             )

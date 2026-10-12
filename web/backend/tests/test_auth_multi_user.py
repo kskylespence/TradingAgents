@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from app.auth import hash_password
@@ -101,7 +101,7 @@ async def test_history_isolation(multi_user_engine) -> None:
     _engine, factory = multi_user_engine
     admin_run = uuid.uuid4()
     user_run = uuid.uuid4()
-    now = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 1, tzinfo=UTC)
 
     async with factory() as session:
         session.add(

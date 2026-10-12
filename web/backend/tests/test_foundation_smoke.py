@@ -8,7 +8,7 @@ end-to-end tests live alongside the routers/services they exercise.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -94,9 +94,9 @@ def test_schemas_round_trip_through_json() -> None:
         rating="Buy",
         llm_provider="openai",
         research_depth=1,
-        started_at=datetime(2026, 5, 19, 12, tzinfo=timezone.utc),
-        finished_at=datetime(2026, 5, 19, 12, 5, tzinfo=timezone.utc),
-        created_at=datetime(2026, 5, 19, 12, tzinfo=timezone.utc),
+        started_at=datetime(2026, 5, 19, 12, tzinfo=UTC),
+        finished_at=datetime(2026, 5, 19, 12, 5, tzinfo=UTC),
+        created_at=datetime(2026, 5, 19, 12, tzinfo=UTC),
         elapsed_seconds=300.0,
         analysts=["market", "news"],
         quick_think_llm="gpt-4o-mini",

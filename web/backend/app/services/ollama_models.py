@@ -59,7 +59,7 @@ import os
 import re
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import httpx
@@ -464,12 +464,12 @@ def recent_attempts() -> list[dict]:
     if not log_deque:
         return []
     now_monotonic = time.monotonic()
-    now_wallclock = datetime.now(timezone.utc)
+    now_wallclock = datetime.now(UTC)
     out: list[dict] = []
     for at_mono, ok, err in log_deque:
         delta_seconds = now_monotonic - at_mono
         wallclock_ts = now_wallclock.timestamp() - delta_seconds
-        iso = datetime.fromtimestamp(wallclock_ts, tz=timezone.utc).isoformat()
+        iso = datetime.fromtimestamp(wallclock_ts, tz=UTC).isoformat()
         out.append({"at": iso, "ok": ok, "error": err})
     return out
 

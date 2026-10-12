@@ -28,7 +28,7 @@ Safety properties (asserted by tests):
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
@@ -169,7 +169,7 @@ async def put_api_key(
         # PUT with the same plaintext still bumps ``updated_at``. Falling
         # back to a tz-aware UTC stamp keeps SQLite (which has no ``now()``)
         # honest in tests.
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(UTC)
 
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -381,7 +381,7 @@ async def put_defaults(
                 setattr(row, field, value)
         # Touch updated_at so SQLite (no server-side ``onupdate``) reflects
         # the mutation even when ``sent`` is empty.
-        row.updated_at = datetime.now(timezone.utc)
+        row.updated_at = datetime.now(UTC)
 
     await db.commit()
     await db.refresh(row)

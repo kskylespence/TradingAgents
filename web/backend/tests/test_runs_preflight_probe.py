@@ -37,6 +37,7 @@ predicate stub.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC
 from typing import Any
 
 import httpx
@@ -376,7 +377,7 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
     """
     import asyncio
     import uuid
-    from datetime import date, datetime, timezone
+    from datetime import date, datetime
 
     from app import (
         db as db_mod,
@@ -434,9 +435,9 @@ def test_retry_endpoint_inherits_probe(monkeypatch, tmp_path) -> None:
                     output_language="English",
                     checkpoint_enabled=False,
                     status="failed",
-                    started_at=datetime(2026, 5, 19, 12, tzinfo=timezone.utc),
+                    started_at=datetime(2026, 5, 19, 12, tzinfo=UTC),
                     finished_at=datetime(
-                        2026, 5, 19, 13, tzinfo=timezone.utc
+                        2026, 5, 19, 13, tzinfo=UTC
                     ),
                     error_message="upstream stuck",
                 )

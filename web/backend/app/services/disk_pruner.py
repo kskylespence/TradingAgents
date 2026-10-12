@@ -53,7 +53,7 @@ import re
 import shutil
 import time
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -159,7 +159,7 @@ async def _prune_checkpoints(data_dir: Path, retention_days: int, db) -> int:
     if not checkpoint_dir.is_dir():
         return 0
 
-    cutoff_dt = datetime.now(tz=timezone.utc) - _timedelta_days(retention_days)
+    cutoff_dt = datetime.now(tz=UTC) - _timedelta_days(retention_days)
     deleted = 0
     for candidate in checkpoint_dir.iterdir():
         if not candidate.is_file():
@@ -188,7 +188,7 @@ async def _prune_checkpoints(data_dir: Path, retention_days: int, db) -> int:
             continue
         # SQLite returns naive datetimes; normalize to UTC for the comparison.
         if newest.tzinfo is None:
-            newest = newest.replace(tzinfo=timezone.utc)
+            newest = newest.replace(tzinfo=UTC)
         if newest >= cutoff_dt:
             continue
 

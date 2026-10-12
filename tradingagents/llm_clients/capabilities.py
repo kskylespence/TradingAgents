@@ -128,6 +128,7 @@ _BY_ID: dict[str, ModelCapabilities] = {
     "deepseek-chat": _DEEPSEEK_CHAT,
     "deepseek-reasoner": _DEEPSEEK_THINKING,
     "deepseek-v3.2": _DEEPSEEK_V3_2,
+    "deepseek-flash": _DEEPSEEK_THINKING,
     "deepseek-v4-flash": _DEEPSEEK_THINKING,
     "deepseek-v4-pro": _DEEPSEEK_THINKING,
     # MiniMax — full official model lineup per
@@ -153,12 +154,16 @@ _BY_ID: dict[str, ModelCapabilities] = {
 }
 
 # Forward-compat patterns. New ``deepseek-v5-*`` / ``deepseek-reasoner-*``
-# or ``MiniMax-M3*`` variants inherit the thinking-mode quirks automatically.
+# / ``deepseek-flash-*`` or ``MiniMax-M3*`` variants inherit the thinking-mode
+# quirks automatically. ``deepseek-flash`` is the unversioned alias the model
+# picker offers for V4.1 Flash; it serves thinking mode and so rejects
+# ``tool_choice`` exactly like the versioned ``deepseek-v4-flash`` ID does.
 # Kimi K2 successors and any model whose ID ends in ``:thinking`` inherit
 # the 300s read budget by default.
 _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
     (re.compile(r"^deepseek-v\d"), _DEEPSEEK_THINKING),
     (re.compile(r"^deepseek-reasoner"), _DEEPSEEK_THINKING),
+    (re.compile(r"^deepseek-flash"), _DEEPSEEK_THINKING),
     (re.compile(r"^MiniMax-M\d"), _MINIMAX_THINKING),
     (re.compile(r"^kimi-k2"), _REASONING_LONG_TIMEOUT),
     # ``.+`` is needed because ``get_capabilities`` uses ``re.match`` which

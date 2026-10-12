@@ -16,15 +16,15 @@ These tests pin:
 
 from __future__ import annotations
 
-import importlib
-
 import httpx
 import pytest
 
 
-def _reload_client():
+def _client_module():
+    """The live module. Never reload it: that rebinds its classes, and any test
+    module that imported them at the top then holds stale ones."""
     import tradingagents.llm_clients.openai_client as mod
-    return importlib.reload(mod)
+    return mod
 
 
 def _build(provider: str, model: str = "gpt-4.1", **kwargs):
@@ -36,7 +36,7 @@ def _build(provider: str, model: str = "gpt-4.1", **kwargs):
     reasoning models like ``kimi-k2-thinking``. Tests that need a
     reasoning model can pass ``model=`` explicitly.
     """
-    mod = _reload_client()
+    mod = _client_module()
     client = mod.OpenAIClient(model=model, provider=provider, **kwargs)
     return client.get_llm()
 

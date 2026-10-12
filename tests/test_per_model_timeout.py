@@ -14,8 +14,6 @@ The env wins because operators set it deliberately deploy-wide.
 
 from __future__ import annotations
 
-import importlib
-
 import httpx
 import pytest
 
@@ -25,14 +23,16 @@ from tradingagents.llm_clients.capabilities import (
 )
 
 
-def _reload_client():
+def _client_module():
+    """The live module. Never reload it: that rebinds its classes, and any test
+    module that imported them at the top then holds stale ones."""
     import tradingagents.llm_clients.openai_client as mod
-    return importlib.reload(mod)
+    return mod
 
 
 def _build(model: str, provider: str = "ollama", **kwargs):
     """Construct a ChatOpenAI through OpenAIClient for the given model+provider."""
-    mod = _reload_client()
+    mod = _client_module()
     client = mod.OpenAIClient(model=model, provider=provider, **kwargs)
     return client.get_llm()
 

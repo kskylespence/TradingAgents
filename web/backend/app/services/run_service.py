@@ -56,7 +56,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any
 from uuid import UUID, uuid4
@@ -444,7 +444,7 @@ async def _run_async(
                         _run_engine(req, asset_type, observer, cancel_event, resume=resume),
                         timeout=run_max,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log.warning(
                         "run_service.timeout",
                         extra={"run_id": str(run_id), "limit_seconds": run_max},
@@ -666,7 +666,7 @@ async def _fake_stream_run(
         """Returns True if cancelled during the wait."""
         try:
             await asyncio.wait_for(asyncio.Event().wait(), timeout=seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         return cancel_event.is_set()
 
@@ -686,7 +686,7 @@ async def _fake_stream_run(
             raise _CancelledByEvent()
         observer.on_message(
             "Agent", f"[FAKE] {agent_name} draft for {req.ticker}",
-            datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            datetime.now(UTC).strftime("%H:%M:%S"),
         )
         if await _pause(0.05):
             raise _CancelledByEvent()
@@ -755,7 +755,7 @@ async def _mark_running(run_id: UUID) -> None:
         if row is None:
             return
         row.status = "running"
-        row.started_at = datetime.now(timezone.utc)
+        row.started_at = datetime.now(UTC)
         await session.commit()
 
 
@@ -776,7 +776,7 @@ async def _mark_completed(
         row.rating = rating
         row.report_dir = report_dir
         row.decision_full = decision_full
-        row.finished_at = datetime.now(timezone.utc)
+        row.finished_at = datetime.now(UTC)
         if stats is not None:
             row.stats = stats
         await session.commit()
@@ -795,7 +795,7 @@ async def _mark_terminal(
         if row is None:
             return
         row.status = new_status
-        row.finished_at = datetime.now(timezone.utc)
+        row.finished_at = datetime.now(UTC)
         if error_message is not None:
             row.error_message = error_message
         if stats is not None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -56,7 +56,7 @@ def verify_password(password: str, hashed: str) -> bool:
 def create_access_token(*, user_id: UUID, username: str, role: str) -> str:
     """Mint a JWT for the given user."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": str(user_id),
         "username": username,

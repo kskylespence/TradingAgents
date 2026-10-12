@@ -32,7 +32,6 @@ suite fast.
 from __future__ import annotations
 
 import asyncio
-import importlib
 from typing import Any
 from unittest.mock import patch
 
@@ -41,8 +40,10 @@ import pytest
 import tradingagents.llm_clients.openai_client as openai_client_mod
 
 
-def _reload_client():
-    return importlib.reload(openai_client_mod)
+def _client_module():
+    """The live module. Never reload it: that rebinds its classes, and any test
+    module that imported them at the top then holds stale ones."""
+    return openai_client_mod
 
 
 class _FakeObserver:
@@ -69,7 +70,7 @@ def fast_heartbeat(monkeypatch):
     runtime into minutes. Patch it on the wrapper module so each test
     can scale ``call_duration`` proportionally.
     """
-    mod = _reload_client()
+    mod = _client_module()
     monkeypatch.setattr(mod, "HEARTBEAT_INTERVAL_SECONDS", 1.0)
     monkeypatch.setattr(mod, "HEARTBEAT_SOFT_WARNING_AFTER", 3.0)
     return mod
@@ -338,3 +339,43 @@ async def test_underlying_exception_propagates(fast_heartbeat):
         mod.NormalizedChatOpenAI.__mro__[1], "ainvoke", new=raises
     ), pytest.raises(_ProviderError, match="upstream 500"):
         await llm.ainvoke([("user", "hi")])
+
+
+def test_parallel_analysts_sharing_one_client_each_keep_their_own_label(fast_heartbeat):
+    """Analysts run side by side on one shared quick-model client (upstream 0.6.0).
+
+    The label used to live on the client, so whichever analyst tagged last named
+    every heartbeat. LangGraph runs each parallel node in a copy of the context,
+    so the label must live there. The barrier makes both nodes tag before either
+    emits: with the label on the client, one of them always reads the other's.
+    """
+    import contextvars
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tradingagents.graph.setup import _tag_agent
+
+    mod = fast_heartbeat
+    llm = _build_chat(mod)
+    observer = _FakeObserver()
+    llm.set_observer(observer)
+    labels = ["Market Analyst", "News Analyst"]
+    tagged = threading.Barrier(len(labels))
+
+    def node_for(label):
+        def node(state):
+            tagged.wait(timeout=5)
+            llm._emit_heartbeat(observer, 30.0)
+            return {"label": label}
+
+        return _tag_agent(node, llm, agent_label=label)
+
+    with ThreadPoolExecutor(max_workers=len(labels)) as pool:
+        futures = [
+            pool.submit(contextvars.copy_context().run, node_for(label), {})
+            for label in labels
+        ]
+        for future in futures:
+            future.result(timeout=10)
+
+    assert sorted(event["agent"] for event in observer.events) == sorted(labels)

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import contextvars
 import logging
 import os
 import re
@@ -18,6 +19,13 @@ from .capabilities import get_capabilities
 from .validators import validate_model
 
 logger = logging.getLogger(__name__)
+
+# The agent a heartbeat names. It lives in the context, not on the client:
+# analysts run side by side on one shared client, and LangGraph runs each
+# parallel node in its own copy of the context, so each keeps its own label.
+_heartbeat_agent: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "heartbeat_agent", default=None
+)
 
 
 # Layer 4 (resilience): how often we emit ``llm_call_pending`` while a single
@@ -64,7 +72,6 @@ class NormalizedChatOpenAI(ChatOpenAI):
     # are NOT validated and NOT serialized. We use ``model_config`` already
     # inherited from ChatOpenAI which allows extra="allow".
     _heartbeat_observer: Any | None = None
-    _heartbeat_agent_hint: str | None = None
 
     def set_observer(self, observer: Any | None) -> None:
         """Attach (or detach) the run observer for heartbeat emission.
@@ -84,9 +91,11 @@ class NormalizedChatOpenAI(ChatOpenAI):
         Setup wraps every analyst node with a helper that calls this
         before delegating to the underlying node fn so heartbeats
         emitted during e.g. the Fundamentals Analyst's slow tool-call
-        round carry ``agent="Fundamentals Analyst"``.
+        round carry ``agent="Fundamentals Analyst"``. The label belongs to the
+        calling context (see ``_heartbeat_agent``), so analysts running at the
+        same time on this client do not overwrite each other's.
         """
-        object.__setattr__(self, "_heartbeat_agent_hint", agent_hint)
+        _heartbeat_agent.set(agent_hint)
 
     def invoke(self, input, config=None, **kwargs):
         observer = getattr(self, "_heartbeat_observer", None)
@@ -124,7 +133,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
                         asyncio.shield(task),
                         timeout=HEARTBEAT_INTERVAL_SECONDS,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     elapsed += HEARTBEAT_INTERVAL_SECONDS
                     self._emit_heartbeat(observer, elapsed)
         except asyncio.CancelledError:
@@ -179,7 +188,7 @@ class NormalizedChatOpenAI(ChatOpenAI):
         """
         payload = {
             "model": getattr(self, "model_name", None) or "unknown",
-            "agent": getattr(self, "_heartbeat_agent_hint", None) or "Engine",
+            "agent": _heartbeat_agent.get() or "Engine",
             "elapsed_seconds": int(elapsed) if elapsed.is_integer() else elapsed,
             "soft_warning": elapsed >= HEARTBEAT_SOFT_WARNING_AFTER,
         }

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import select
@@ -118,7 +118,7 @@ async def _seed_run(
                 output_language="English",
                 checkpoint_enabled=checkpoint_enabled,
                 status=status,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
         )
         await session.commit()
@@ -216,7 +216,7 @@ async def test_terminal_event_starts_after_existing_events(session_factory) -> N
                 RunEventModel(
                     run_id=str(run_id),
                     seq=seq,
-                    ts=datetime.now(timezone.utc),
+                    ts=datetime.now(UTC),
                     type="message",
                     payload={"type": "message", "kind": "Agent", "content": "x"},
                 )

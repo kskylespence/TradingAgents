@@ -49,7 +49,7 @@ import logging
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -371,7 +371,7 @@ class WebRunObserver(RunObserver):
             S.RunCompletedEvent,
             rating=rating,
             report_dir=report_dir,
-            finished_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(UTC),
         )
         self._schedule(payload)
 

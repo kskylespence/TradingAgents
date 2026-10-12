@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.auth import hash_password
@@ -313,8 +313,8 @@ def test_seconds_until_free_is_positive() -> None:
 
     limiter = LoginRateLimiter(max_attempts=2, window_seconds=300)
     bucket = _Bucket()
-    bucket.timestamps.append(datetime.now(timezone.utc) - timedelta(seconds=10))
-    bucket.timestamps.append(datetime.now(timezone.utc))
+    bucket.timestamps.append(datetime.now(UTC) - timedelta(seconds=10))
+    bucket.timestamps.append(datetime.now(UTC))
     delay = limiter._seconds_until_free(bucket)
     assert delay > 0
     # Should be close to (window - 10s)

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import (
@@ -96,7 +96,7 @@ async def seeded_run(event_bus_engine) -> uuid.UUID:
                 output_language="English",
                 checkpoint_enabled=False,
                 status="running",
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
         )
         await session.commit()
@@ -125,7 +125,7 @@ async def _drain(gen, *, limit: int = 1000, timeout: float = 5.0) -> list[dict]:
 
     try:
         await asyncio.wait_for(_pull(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     return out
 
@@ -222,7 +222,7 @@ async def test_terminal_event_ends_subscription(seeded_run) -> None:
             "run_completed",
             rating="Buy",
             report_dir="/tmp/r",
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
         ),
     )
 

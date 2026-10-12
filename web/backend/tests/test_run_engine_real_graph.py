@@ -26,9 +26,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from tradingagents.decision_log import TradingMemoryLog
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph import trading_graph
+from tradingagents.memory import TradingMemoryLog
 from tradingagents.run_observer import RunObserver
 
 DECISION = "Report.\n\n**Rating**: Overweight\n\nFINAL TRANSACTION PROPOSAL: **BUY**"
@@ -114,7 +114,9 @@ def engine(monkeypatch, tmp_path, no_network):
         def get_llm(self):
             return _AnswerOnlyModel(script=state["script"])
 
-    monkeypatch.setattr(trading_graph, "create_llm_client", lambda **kwargs: _Client())
+    monkeypatch.setattr(
+        trading_graph, "create_tier_client", lambda config, tier, **extra: _Client()
+    )
 
     def use(script: _Script) -> _Script:
         state["script"] = script
@@ -160,7 +162,7 @@ def test_no_network_fixture_blocks_price_fetches(engine):
     (the data layer reports an unreachable vendor as NoMarketDataError) or
     come back empty. ``engine`` points the OHLCV cache at tmp_path, so a
     developer's ~/.tradingagents cache cannot answer instead of the network."""
-    from tradingagents.graph.settlement import get_closes
+    from tradingagents.dataflows.vendors.yahoo.market import get_closes
 
     try:
         bars = get_closes("NVDA", "2026-01-08", "2026-01-22")

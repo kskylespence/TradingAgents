@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -71,7 +71,7 @@ async def seeded_runs(history_engine):
     from app.models import Run
 
     _engine, factory = history_engine
-    base = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
     ids: list[str] = []
     async with factory() as session:
         for i in range(25):
@@ -203,7 +203,7 @@ async def test_pages_are_stable_under_concurrent_inserts(
             output_language="English",
             checkpoint_enabled=False,
             status="completed",
-            created_at=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2027, 1, 1, tzinfo=UTC),
         )
         session.add(row)
         await session.commit()

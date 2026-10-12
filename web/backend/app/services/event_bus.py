@@ -38,7 +38,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -139,7 +139,7 @@ async def _persist_event(
     )
     next_seq = int(result.scalar() or 0) + 1
 
-    ts = datetime.now(timezone.utc)
+    ts = datetime.now(UTC)
     # ``type`` lives in the payload (discriminator key); fall back to a
     # sentinel so the NOT NULL constraint doesn't fire on malformed input.
     event_type = str(payload.get("type", "unknown"))
@@ -283,7 +283,7 @@ async def subscribe(
             # if no events are flowing.
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             # De-dup against the replay phase: a publish racing the

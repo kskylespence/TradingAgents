@@ -1,6 +1,9 @@
+import logging
+from collections import Counter
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypedDict
 
+from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -11,7 +14,6 @@ from tradingagents.agents import (
     create_conservative_debator,
     create_fundamentals_analyst,
     create_market_analyst,
-    create_msg_delete,
     create_neutral_debator,
     create_news_analyst,
     create_portfolio_manager,
@@ -19,10 +21,13 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
+from tradingagents.agents.analysts.turn import WRAP_UP
 from tradingagents.agents.state import AgentState
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+
+logger = logging.getLogger(__name__)
 
 # Every target a shared conditional router can return. Each edge driven by the
 # router maps all of them, so a fall-through return (e.g. under prompt/i18n/
@@ -63,11 +68,49 @@ def _tag_agent(node_fn: Callable, *llms: Any, agent_label: str) -> Callable:
     return wrapped
 
 
-def _tools_or_clear(spec):
-    """Route an analyst's turn: run its tool calls, or finish its report."""
-    def route(state) -> str:
-        return spec.tool_node if state["messages"][-1].tool_calls else spec.clear_node
-    return route
+def _tools_or_done(state) -> str:
+    """Route an analyst's turn: run its tool calls, or finish with its report."""
+    return "tools" if state["messages"][-1].tool_calls else END
+
+
+def _analyst_graph(spec, agent, max_tool_rounds: int):
+    """One analyst as a graph of its own: the model and its tools, on a private message history.
+
+    It returns only its report, so analysts running side by side never write the
+    same key, and its tool calls never reach the other analysts' messages. After
+    ``max_tool_rounds`` rounds of tool calls it is told to write its report, and
+    that turn ends it whatever it answers, so a model that keeps calling tools
+    cannot run the graph into its recursion limit (#1420).
+    """
+    output = TypedDict(f"{spec.key.capitalize()}Report", {spec.report_key: str})
+    graph = StateGraph(AgentState, output_schema=output)
+    graph.add_node("agent", agent)
+    graph.add_edge(START, "agent")
+    if not spec.tools:
+        graph.add_edge("agent", END)
+        return graph.compile()
+
+    def calls(messages):
+        return [call["name"] for m in messages for call in (getattr(m, "tool_calls", None) or [])]
+
+    def rounds(messages) -> int:
+        return sum(1 for m in messages if getattr(m, "tool_calls", None))
+
+    def more_or_wrap_up(state) -> str:
+        return "wrap_up" if rounds(state["messages"]) >= max_tool_rounds else "agent"
+
+    def wrap_up(state):
+        repeated = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
+        logger.warning("%s used its %d tool rounds (%s); asking for its report",
+                       spec.agent_node, max_tool_rounds, repeated)
+        return agent({**state, "messages": [*state["messages"], HumanMessage(WRAP_UP)]})
+
+    graph.add_node("tools", ToolNode(list(spec.tools)))
+    graph.add_node("wrap_up", wrap_up)
+    graph.add_conditional_edges("agent", _tools_or_done, ["tools", END])
+    graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "wrap_up"])
+    graph.add_edge("wrap_up", END)
+    return graph.compile()
 
 
 class GraphSetup:
@@ -78,14 +121,16 @@ class GraphSetup:
         quick_thinking_llm: Any,
         deep_thinking_llm: Any,
         conditional_logic: ConditionalLogic,
+        max_tool_rounds: int,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.conditional_logic = conditional_logic
+        self.max_tool_rounds = max_tool_rounds
 
     def setup_graph(
-        self, selected_analysts=("market", "social", "news", "fundamentals")
+        self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
     ):
         """Set up and compile the agent workflow graph.
 
@@ -95,6 +140,8 @@ class GraphSetup:
                 - "social": Sentiment analyst
                 - "news": News analyst
                 - "fundamentals": Fundamentals analyst
+            memory_node: Node that settles past decisions and returns the run's
+                ``past_context``. It runs alongside the analysts.
         """
         plan = build_analyst_execution_plan(selected_analysts)
 
@@ -123,17 +170,14 @@ class GraphSetup:
         llms = (self.quick_thinking_llm, self.deep_thinking_llm)
 
         for spec in plan.specs:
-            workflow.add_node(
-                spec.agent_node,
-                _tag_agent(
-                    analyst_factories[spec.key](),
-                    *llms,
-                    agent_label=spec.agent_node,
-                ),
+            analyst = _tag_agent(
+                analyst_factories[spec.key](),
+                *llms,
+                agent_label=spec.agent_node,
             )
-            workflow.add_node(spec.clear_node, create_msg_delete())
-            if spec.tools:
-                workflow.add_node(spec.tool_node, ToolNode(list(spec.tools)))
+            workflow.add_node(
+                spec.agent_node, _analyst_graph(spec, analyst, self.max_tool_rounds)
+            )
 
         # Add other nodes — each wrapped with its label so heartbeats name
         # the researcher/debater/PM instead of falling back to "Engine".
@@ -170,20 +214,16 @@ class GraphSetup:
             _tag_agent(portfolio_manager_node, *llms, agent_label="Portfolio Manager"),
         )
 
-        workflow.add_edge(START, plan.specs[0].agent_node)
-
-        for i, spec in enumerate(plan.specs):
-            if spec.tools:
-                workflow.add_conditional_edges(
-                    spec.agent_node, _tools_or_clear(spec), [spec.tool_node, spec.clear_node]
-                )
-                workflow.add_edge(spec.tool_node, spec.agent_node)
-            else:
-                workflow.add_edge(spec.agent_node, spec.clear_node)
-
-            # The last analyst hands over to the research debate.
-            following = plan.specs[i + 1].agent_node if i < len(plan.specs) - 1 else "Bull Researcher"
-            workflow.add_edge(spec.clear_node, following)
+        # The analysts work at the same time; the research debate starts once
+        # every one of them has filed its report. The memory log settles past
+        # decisions alongside them: only the Portfolio Manager reads its lessons.
+        first_steps = [spec.agent_node for spec in plan.specs]
+        if memory_node is not None:
+            workflow.add_node("Memory Log", memory_node)
+            first_steps.append("Memory Log")
+        for node in first_steps:
+            workflow.add_edge(START, node)
+        workflow.add_edge(first_steps, "Bull Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).
         for debate_node in ("Bull Researcher", "Bear Researcher"):

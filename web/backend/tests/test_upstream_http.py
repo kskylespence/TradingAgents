@@ -33,7 +33,7 @@ tenacity retry loop, just with deterministic transport responses.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from time import monotonic
 
@@ -227,7 +227,7 @@ async def test_request_honors_retry_after_http_date(monkeypatch) -> None:
 
     monkeypatch.setattr(upstream_http, "_async_sleep", fake_sleep)
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=3)
+    future = datetime.now(UTC) + timedelta(seconds=3)
     http_date = format_datetime(future, usegmt=True)
     calls: list[int] = []
 

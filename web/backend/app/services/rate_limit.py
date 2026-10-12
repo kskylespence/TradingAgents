@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy import select
@@ -142,7 +142,7 @@ class LoginRateLimiter:
         On failure, the timestamp is appended.
         """
         ip = client_ip(request)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         db.add(LoginAttempt(ip=ip, succeeded=succeeded, attempted_at=now))
         await db.commit()
         async with self._get_lock():
@@ -167,7 +167,7 @@ class LoginRateLimiter:
         up failures *after* that success (because the window has moved).
         """
         bucket.hydrated = True
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.window_seconds)
+        cutoff = datetime.now(UTC) - timedelta(seconds=self.window_seconds)
         stmt = (
             select(LoginAttempt.attempted_at, LoginAttempt.succeeded)
             .where(LoginAttempt.ip == ip)
@@ -189,7 +189,7 @@ class LoginRateLimiter:
 
     def _prune(self, bucket: _Bucket) -> None:
         """Drop timestamps that fell out of the rolling window."""
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.window_seconds)
+        cutoff = datetime.now(UTC) - timedelta(seconds=self.window_seconds)
         while bucket.timestamps and bucket.timestamps[0] < cutoff:
             bucket.timestamps.popleft()
 
@@ -199,7 +199,7 @@ class LoginRateLimiter:
             return 0
         oldest = bucket.timestamps[0]
         free_at = oldest + timedelta(seconds=self.window_seconds)
-        delta = (free_at - datetime.now(timezone.utc)).total_seconds()
+        delta = (free_at - datetime.now(UTC)).total_seconds()
         # Always at least 1 so clients don't spin retrying.
         return max(1, int(delta) + 1)
 
@@ -207,7 +207,7 @@ class LoginRateLimiter:
     def _coerce_aware(dt: datetime) -> datetime:
         """SQLite returns naive datetimes; treat them as UTC."""
         if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
         return dt
 
 

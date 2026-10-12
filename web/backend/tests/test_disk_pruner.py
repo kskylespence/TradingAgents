@@ -24,7 +24,7 @@ import os
 import time
 import uuid
 import warnings
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -152,7 +152,7 @@ async def _seed_runs(factory, *, recent_days: int, old_days: int) -> None:
     """
     from app.models import Run
 
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     async with factory() as session:
         session.add(
             Run(

@@ -37,6 +37,7 @@ import json
 import logging
 import zipfile
 from collections.abc import AsyncIterator
+from datetime import UTC
 from pathlib import Path
 from uuid import UUID
 
@@ -523,17 +524,17 @@ def _to_detail(row: Run) -> RunDetail:
     just ``started_at`` if still running) and marks ``resumable`` when
     the run was interrupted with checkpointing enabled.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     def _aware(dt: datetime) -> datetime:
         # SQLite drops tzinfo on the way out of the DB; normalise both
         # sides of the subtraction to UTC so the arithmetic works on
         # both SQLite (tests) and Postgres (prod, which preserves it).
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
 
     elapsed: float | None = None
     if row.started_at is not None:
-        end = row.finished_at or datetime.now(timezone.utc)
+        end = row.finished_at or datetime.now(UTC)
         elapsed = max(0.0, (_aware(end) - _aware(row.started_at)).total_seconds())
 
     resumable = bool(row.status == "interrupted" and row.checkpoint_enabled)

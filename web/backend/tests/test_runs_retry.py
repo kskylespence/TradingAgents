@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -145,8 +145,8 @@ def _seed_run(factory, *, status: str, run_id: str | None = None, **overrides) -
         "output_language": "English",
         "checkpoint_enabled": False,
         "status": status,
-        "started_at": datetime(2026, 5, 19, 12, tzinfo=timezone.utc),
-        "finished_at": datetime(2026, 5, 19, 12, 5, tzinfo=timezone.utc),
+        "started_at": datetime(2026, 5, 19, 12, tzinfo=UTC),
+        "finished_at": datetime(2026, 5, 19, 12, 5, tzinfo=UTC),
         "error_message": "upstream transient blip" if status == "failed" else None,
     }
     payload.update(overrides)
