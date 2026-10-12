@@ -185,6 +185,13 @@ for the per-deploy cut workflow.
   reached end of life on 2026-04-30 and gets no security fixes.
   `build-essential` shipped gcc and make in the production image although
   every locked package has a prebuilt wheel.
+- **`source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q).** The weekly
+  `npm audit` job went red on 2026-10-12 with no push: a new high-severity
+  advisory (event-loop denial of service through indexed source-map section
+  offsets) landed against the version the frontend lockfile already pinned.
+  It is a dev-only, transitive dependency (postcss, Tailwind, jsdom), so
+  nothing in the shipped bundle used it, but the check is meant to stay
+  green. Only the lockfile changed; `package.json` already allowed `^1.2.1`.
 
 ## [0.3.1+hf.5] — 2026-08-05
 
