@@ -52,6 +52,32 @@ for the per-deploy cut workflow.
   warning badge in the model picker. Suggested alternatives now pin
   `glm-5.3` → `glm-5.3-flash` → `glm-5.2` to the front.
 
+- **Python 3.11 or later; CI runs 3.11–3.14.** Upstream 0.6.0 dropped 3.10, so
+  `requires-python`, ruff's `target-version` and the CI matrix moved with it.
+  The Docker image stays on 3.12 (the lock is compiled for it). Ruff's
+  `datetime.UTC` and `TimeoutError` rules now apply, which rewrote about 25
+  files under `web/backend/` mechanically.
+- **The fork version lives only in the web backend.** Upstream now reads the
+  package version from `tradingagents.__version__` (plain `0.6.0`) and its own
+  test rejects a `+hf.N` suffix there, so the fork counter moved to
+  `web/backend/app/__init__.py` (`0.6.0+hf.1`, what `/api/health` reports).
+  `tests/test_fork_version.py` fails if its base ever differs from the
+  package's. `docs/RELEASING.md` describes the new rule.
+- **A transient provider error now re-runs the whole analyst.** The node
+  retry policy (3 attempts, 8 s backoff) is attached to the top-level graph
+  nodes, and each analyst is one node there since 0.6.0, so a 5xx from Ollama
+  Cloud in the third tool round repeats that analyst from its first step
+  (data fetches are cached; the model calls are paid again). Rare, and
+  bounded at three attempts.
+- **CI and the image build run on `ubuntu-24.04`, not `ubuntu-latest`.** GitHub
+  moves `latest` to Ubuntu 26 on 2026-10-19 (it warns on every job), which would
+  change the toolchain under both workflows with no commit here. Bump the pin
+  on purpose, after a local pass, when 26 is wanted.
+- **CI checks run locally first.** `docs/RELEASING.md` §4 lists the full local
+  pass (four Python versions, backend, frontend, ruff, `pip-audit`, the Docker
+  build, the clean install), so one finished branch is pushed instead of
+  fix-up commits that each cost Actions minutes.
+
 ### Fixed
 
 - **Choosing Ollama in the interactive CLI crashed with `KeyError: 'ollama'`.**
@@ -120,6 +146,26 @@ for the per-deploy cut workflow.
   offline with scripted models, including an interrupted-then-resumed run.
   Its network block also stops yfinance, which fetches through `curl_cffi`
   and bypasses Python's `socket` module.
+
+- **Heartbeat events name the right analyst when analysts run side by side.**
+  Upstream 0.6.0 runs the analysts at the same time on one shared model
+  client, and the fork stored "which agent is calling" as an attribute of
+  that client, so whichever analyst tagged last named every "still waiting"
+  heartbeat in the UI. The label now lives in a `ContextVar`, which LangGraph
+  copies per parallel node. Pinned by a test that runs two tagged nodes on one
+  client behind a barrier (it failed with both events saying "News Analyst").
+
+### Upstream
+
+- **Synced with upstream v0.6.0** (from v0.5.1; also brings v0.5.2). HTML
+  report (`complete_report.html`), a provider per model tier
+  (`TRADINGAGENTS_DEEP_THINK_PROVIDER` / `…QUICK_THINK_PROVIDER`), analysts
+  running at the same time, every due past decision settled during the run, a
+  Yahoo search fallback while Yahoo's news feed is empty, and a 600 s Gemini
+  timeout. Heads-up for the deploy: checkpoints from 0.5.2 are not resumed, so
+  a run interrupted before the deploy starts over; and the memory log is now
+  the `tradingagents.memory` package. Details of the eight conflicts and what
+  the fork re-applied are in `docs/UPSTREAM-MERGE.md`.
 
 ### Removed
 

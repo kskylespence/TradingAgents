@@ -32,7 +32,7 @@ Before you start, you should have:
     [Step 3b](#step-3b--database-choose-one)); or
   - **Neon:** a project with a database called `tradingagents`, pooled
     connection string converted to `postgresql+asyncpg://…?ssl=require`.
-- A workstation with Python 3.10+ installed locally, used only to generate
+- A workstation with Python 3.11+ installed locally, used only to generate
   secrets (the secrets never leave your machine until you paste them into
   Coolify).
 - LLM provider credentials for whichever providers you plan to use. For the

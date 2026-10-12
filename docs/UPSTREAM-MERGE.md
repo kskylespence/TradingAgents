@@ -1,14 +1,15 @@
 # Upstream merges
 
 Latest: [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
-**v0.5.1** (2026-09-24) → fork **`0.5.1+hf.1`**. Earlier: v0.3.1 → `0.3.1+hf.1`
-(2026-07-08).
+**v0.6.0** (2026-10-03) → fork **`0.6.0+hf.1`**. Earlier: v0.5.1 → `0.5.1+hf.1`
+(2026-09-24), v0.3.1 → `0.3.1+hf.1` (2026-07-08).
 
 ## Current state
 
 | | Fork | Upstream |
 |---|------|----------|
-| Version | `0.5.1+hf.1` | `v0.5.1` (2026-09-24) |
+| Version | `0.6.0+hf.1` (web backend; the package itself reports `0.6.0`) | `v0.6.0` (2026-10-03) |
+| Python | 3.11+ (image runs 3.12) | 3.11+ (image runs 3.13) |
 | Web UI / Coolify | Yes | No |
 | Resilience (run timeout, Ollama circuit breaker) | Yes | Partial (`TRADINGAGENTS_LLM_MAX_RETRIES` in v0.3.1) |
 
@@ -32,14 +33,19 @@ Follow [`docs/RELEASING.md`](RELEASING.md) §2 (upstream merge) when ready:
 
 1. Stabilize VPS with [lite preset](../web/docs/operations.md#lite-vps-preset)
    and [GHCR prebuilt deploy](../DEPLOY.md#prebuilt-image-ghcr).
-2. `git fetch upstream && git merge upstream/main`. Merge onto `main` —
-   this repo is worked single-branch, so the "dedicated branch" step from
-   earlier revisions of this doc no longer applies.
+2. `git fetch upstream --tags`, then squash-merge the tag and merge it
+   `--no-ff` afterwards (RELEASING.md §2.2). The second merge records the
+   ancestry; with the squash alone git still thinks the base is the old
+   release and every later sync re-diffs from there. Do it on a branch.
 3. Resolve conflicts prioritizing fork-owned paths:
    - `web/backend/`, `web/frontend/`, `DEPLOY.md`, `CHANGELOG.fork.md`
-4. Run full test matrix: `pytest`, `web/backend` pytest, frontend vitest.
-5. Cut the next `+hf.` per RELEASING.md — reset the counter only when the
-   upstream *base* version moves (post-v0.3.1 commits do not reset it).
+4. Run the whole local CI pass, RELEASING.md §4 (root suite on the CI Python
+   versions, web backend, frontend, ruff, `pip-audit`, the Docker build).
+   Nothing is pushed until it is green.
+5. Set the web version to `<new upstream base>+hf.1` in the sync itself
+   (`tests/test_fork_version.py` enforces it), then cut per RELEASING.md §1 —
+   reset the counter only when the upstream *base* version moves
+   (post-v0.3.1 commits do not reset it).
 
 **Re-fetch `upstream/main` before judging whether you are current.** The
 remote-tracking ref is only as fresh as your last `git fetch upstream`; a
@@ -99,3 +105,52 @@ engine offline — FAKE_LLM tests skip it entirely.
 
 Verified after merge: root 1073 passed (2 did not run: optional Bedrock
 extra, live DeepSeek), web backend 268 passed, ruff clean.
+
+**v0.6.0 sync: 2026-10-12.** Squash-merged the tag `v0.6.0` (a lightweight tag;
+commit `1394a3f`, which also covers v0.5.2), 89 commits past `v0.5.1`, on branch
+`chore/upstream-v0.6.0`. Only 13 files changed on both sides, 8 conflicted.
+Adaptations a future sync should expect:
+
+- **Analysts run at the same time**, each as its own subgraph
+  (`graph/setup.py:_analyst_graph`), and a `Memory Log` node settles past
+  decisions beside them. `AnalystNodeSpec` has no `tool_node` / `clear_node`
+  any more. The fork's `_tag_agent` wraps the analyst function before it goes
+  into the subgraph; the retry policy is stamped on the top-level nodes, so a
+  transient provider error re-runs the whole analyst, not one step.
+- **The heartbeat label is a `ContextVar`**, not an attribute of the client
+  (`llm_clients/openai_client.py:_heartbeat_agent`). All analysts share one
+  quick-model client now, so a label stored on it names whichever analyst
+  tagged last. Never put per-node state on the shared client.
+- `tradingagents/decision_log.py` became the `tradingagents.memory` package
+  (`log`, `settlement`, `reflection`); `graph/settlement.py` and
+  `graph/reflection.py` are gone, and `get_closes` lives in
+  `dataflows/vendors/yahoo/market.py`. `web/backend/tests/test_run_engine_real_graph.py`
+  imported the old paths and failed at collection.
+- `graph/trading_graph.py` builds clients with `create_tier_client(config,
+  "quick" | "deep")` (a provider per tier) instead of `create_llm_client`; the
+  engine tests patch that name now.
+- **Python 3.10 is dropped** (`requires-python >=3.11`, ruff `py311`). The CI
+  matrix is 3.11–3.14 and ruff's `UP017` / `UP041` now apply, which touched
+  about 25 files under `web/backend/`.
+- **The package version has one source**, `tradingagents.__version__`, and
+  upstream's `tests/test_version.py` rejects `+hf.N` there. The fork counter
+  moved to `web/backend/app/__init__.py` only (RELEASING.md).
+- v0.5.2 → v0.6.0 checkpoints are not compatible: a run checkpointed before the
+  deploy starts over after it.
+- Upstream's `docker-compose.yml` and `Dockerfile` are the CLI image; the fork's
+  are the web stack, so both were kept as ours.
+
+Two fork tests had hidden problems the sync exposed. `tests/test_llm_call_heartbeat.py`,
+`test_ollama_api_key.py`, `test_openai_client_retry.py` and `test_per_model_timeout.py`
+called `importlib.reload(openai_client)`, which rebinds the module's classes, so
+upstream's `test_openai_compatible_provider.py` (which imports them at the top)
+failed only in the full run. They use the live module now; do not reload it.
+Upstream's `tests/test_cache_writes.py` used `errno.EDEADLOCK`, which macOS does
+not define; `dataflows/files.py` has a `_EDEADLOCK` constant now.
+
+Verified after merge, all on this machine: root 1339 passed in the main venv
+and 1327 passed (2 skipped for named reasons, see RELEASING.md §4) in fresh
+py3.11, 3.12, 3.12 + `TZ=America/New_York` and 3.14 environments; web backend
+291 passed; frontend 77 passed, build clean, `npm audit` clean; ruff clean;
+`pip-audit` on `requirements.lock` clean; the Docker image built from the lock;
+all 137 modules of `tradingagents`, `cli` and `app` import.

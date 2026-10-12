@@ -14,24 +14,29 @@ the version installable by pip but unpublishable to PyPI by design
 
 ## Version ↔ tag ↔ upstream reference table
 
-| pyproject.toml version | Git tag       | Upstream base                  |
-|------------------------|---------------|--------------------------------|
-| 0.2.5+hf.1             | v0.2.5-hf.1   | TauricResearch v0.2.5          |
-| 0.2.5+hf.2             | v0.2.5-hf.2   | TauricResearch v0.2.5          |
-| 0.3.0+hf.1             | v0.3.0-hf.1   | TauricResearch v0.3.0 (future) |
+| Fork version (`/api/health`) | Git tag       | Upstream base                  |
+|------------------------------|---------------|--------------------------------|
+| 0.2.5+hf.1                   | v0.2.5-hf.1   | TauricResearch v0.2.5          |
+| 0.2.5+hf.2                   | v0.2.5-hf.2   | TauricResearch v0.2.5          |
+| 0.6.0+hf.1                   | v0.6.0-hf.1   | TauricResearch v0.6.0          |
 
 Note the asymmetry: the **version string** uses `+` (PEP 440 local
 segment delimiter), the **git tag** uses `-` (`+` is not a legal git
 ref character). The two are intentionally one-to-one — `v` prefix and
 `+` → `-` is the only transform.
 
-Two files carry the version string and **MUST** stay in lockstep:
+**Exactly one file carries the `+hf.N` string:** `web/backend/app/__init__.py`
+(`__version__ = "..."`). The web backend's `/api/health` endpoint reports it,
+so the running Coolify build can be verified against the tag.
 
-- `pyproject.toml` — `[project] version = "..."`
-- `web/backend/app/__init__.py` — `__version__ = "..."`
-
-The web backend's `/api/health` endpoint reports `__version__` so that
-the running Coolify build can be verified against the tag.
+The root `pyproject.toml` has **no** version of its own since upstream v0.6.0.
+It reads `tradingagents.__version__` (`[tool.setuptools.dynamic]`), which is
+upstream's plain `X.Y.Z`. Do not put `+hf.N` there: upstream's
+`tests/test_version.py` rejects it, and editing that test would make every
+upstream sync conflict. That version changes only when an upstream sync brings
+a new one in. The two are related by one rule: the web version's base
+(`0.6.0` in `0.6.0+hf.1`) must equal `tradingagents.__version__`.
+`tests/test_fork_version.py` fails if they drift.
 
 ## 1. Cutting a fork release (the deploy workflow)
 
@@ -104,35 +109,30 @@ Three edits, in order:
    [Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.2.5-hf.2...HEAD
    ```
 
-### 1.4 Bump the version strings
+### 1.4 Bump the version string
 
-Both files must change together; mismatched versions are caught by the
-`/api/health` step below but are easier to fix before the tag exists.
+Only `web/backend/app/__init__.py` changes (see the note under the table
+above). `tests/test_fork_version.py` checks its base against
+`tradingagents.__version__`.
 
-- `pyproject.toml`:
+```python
+__version__ = "0.2.5+hf.2"
+```
 
-  ```toml
-  [project]
-  version = "0.2.5+hf.2"
-  ```
+### 1.5 Run CI locally, then commit, tag, push
 
-- `web/backend/app/__init__.py`:
-
-  ```python
-  __version__ = "0.2.5+hf.2"
-  ```
-
-### 1.5 Commit, tag, push
+Run the whole local pass in [section 4](#4-run-ci-locally-before-every-push)
+first. A push is for a branch you already know is green.
 
 ```powershell
-git add CHANGELOG.fork.md pyproject.toml web/backend/app/__init__.py
+git add CHANGELOG.fork.md web/backend/app/__init__.py
 git commit -m "chore(release): 0.2.5+hf.2"
 git tag v0.2.5-hf.2
 git push origin main --tags
 ```
 
 ```bash
-git add CHANGELOG.fork.md pyproject.toml web/backend/app/__init__.py
+git add CHANGELOG.fork.md web/backend/app/__init__.py
 git commit -m "chore(release): 0.2.5+hf.2"
 git tag v0.2.5-hf.2
 git push origin main --tags
@@ -255,16 +255,24 @@ When upstream tags a new release (e.g. `v0.2.6`):
    git commit -m "chore(upstream): sync to upstream v0.2.6"
    ```
 
-2. The next fork cut will use `0.2.6+hf.1` — the counter resets the
-   moment the upstream base moves forward. Don't pre-bump the
-   version files; the bump happens during section 1.
+2. The counter resets the moment the upstream base moves forward, so set
+   `web/backend/app/__init__.py` to `0.2.6+hf.1` in the sync itself.
+   `tests/test_fork_version.py` fails until it matches the new
+   `tradingagents.__version__`. Do not touch the root `pyproject.toml`
+   version: it comes from upstream. The tag, the changelog rename and the
+   deploy still happen in section 1.
 
-3. *Optional but recommended:* also merge the tag itself (no-fast-
-   forward) so `git describe` cleanly identifies the upstream
-   baseline in our history graph:
+3. *Recommended:* also record the tag in the history, so `git describe` and
+   the next sync's merge base point at it. Use `-s ours`, not a plain merge:
+   the squash already took everything from the tag, and a plain
+   `--no-ff` merge re-conflicts on every hunk where the fork kept its own side.
+   First prove nothing from the tag is missing: the only differences from
+   the tag should be fork changes.
 
    ```bash
-   git merge --no-ff v0.2.6 -m "chore(upstream): merge tag v0.2.6"
+   git diff --stat v0.2.6 HEAD -- tradingagents cli   # fork-owned changes only
+   git merge -s ours --no-ff v0.2.6 -m "chore(upstream): merge tag v0.2.6"
+   git merge-base HEAD v0.2.6                          # must print the tag's commit
    ```
 
    This adds a second commit but makes `git describe --match 'v*'`
@@ -324,7 +332,7 @@ The verification step (1.7) becomes "verify on next deploy" — note
 the hotfix version in your deploy plan so 1.7 runs against the
 *latest* tag when the actual deploy happens.
 
-Hotfix cuts still update both version files and still tag. The whole
+Hotfix cuts still update the web version and still tag. The whole
 point of the scheme is that every push to `main` is reproducible from
 a tag; skipping the tag would break that.
 
@@ -346,5 +354,46 @@ The per-deploy cadence pairs naturally with the `+hf.N` counter: the
 deploy *is* the release, the tag is the audit trail, and `/api/health`
 on the running container is the verification step. Upstream's
 semver-on-tags discipline still governs the `<upstream-base>` portion
-of the version, so `pip install` resolvers continue to see this fork
-as "a build of upstream 0.2.5" — which it is.
+of the version. Since upstream v0.6.0 the installed `tradingagents`
+package reports that plain base (`0.6.0`) and only the web backend adds
+`+hf.N`, so the unpublishable suffix now guards the deployed app rather
+than the library.
+
+## 4. Run CI locally before every push
+
+GitHub Actions minutes are paid for, and a push that fails costs a full
+run. Run everything CI runs here first, push one finished branch, and do
+not push to find out whether it passes. From the repo root with the venv
+from `CLAUDE.md` (`~/.local/bin/uv`, Docker Desktop running):
+
+```bash
+# 1. Root suite, as CI runs it: root package only, one run a hair away from UTC.
+for v in 3.11 3.12 3.14; do
+  uv venv -q --python $v /tmp/ci-$v && uv pip install -q --python /tmp/ci-$v/bin/python -e '.[dev]'
+  /tmp/ci-$v/bin/python -m pytest -q
+done
+TZ=America/New_York /tmp/ci-3.12/bin/python -m pytest -q      # the New York run
+# 2. Web backend (needs the root package and the backend installed) and lint
+.venv/bin/python -m pytest -q && (cd web/backend && ../../.venv/bin/python -m pytest -q)
+.venv/bin/ruff check .
+# 3. Frontend, exactly as CI: npm ci checks the lockfile against package.json
+(cd web/frontend && npm ci && npm run lint && npm test && npm run build && npm audit --audit-level=moderate)
+# 4. Advisories on what the image installs, and the image itself
+uvx pip-audit -r requirements.lock --require-hashes --disable-pip
+docker build --tag tradingagents:ci .
+docker run --rm --entrypoint python tradingagents:ci -c "import tradingagents, app; print(tradingagents.__version__, app.__version__)"
+# 5. Fresh install with no dev extras, as the clean-install job does
+uv venv -q --python 3.12 /tmp/ci-smoke && uv pip install -q --python /tmp/ci-smoke/bin/python .
+(cd /tmp && /tmp/ci-smoke/bin/python -c "import tradingagents, cli.main")
+```
+
+Read the counts, not just the exit codes: a run that collected nothing
+exits 0 too. Skips must have a reason you can name (the Bedrock test needs
+`pip install -e '.[bedrock]'`; `test_run_service_error_format.py` needs
+fastapi, so it runs in the main venv, not the root-only ones). After an
+upstream sync also import every module, because grep misses lazy imports
+(`docs/UPSTREAM-MERGE.md`).
+
+Run the weekly `dependency audit` checks (`pip-audit`, `npm audit`) now and
+then as well: they fail with no push when a new advisory is published, and
+a fix then needs the same single local pass, not a series of pushes.

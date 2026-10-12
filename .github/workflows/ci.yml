@@ -18,11 +18,13 @@ concurrency:
 
 # Actions are pinned to full commit SHAs (Dependabot keeps them current):
 # a moved or hijacked tag cannot change what runs here.
+# Runners are pinned to ubuntu-24.04, not ubuntu-latest: GitHub moves `latest` to
+# Ubuntu 26 on 2026-10-19, which would change the toolchain with no commit here.
 
 jobs:
   test:
     name: tests (py${{ matrix.python-version }}${{ matrix.tz && format(', {0}', matrix.tz) || '' }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +49,7 @@ jobs:
 
   web-backend:
     name: web backend tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -63,7 +65,7 @@ jobs:
 
   web-frontend:
     name: web frontend (tsc, vitest, build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web/frontend
@@ -81,7 +83,7 @@ jobs:
 
   audit:
     name: dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -100,7 +102,7 @@ jobs:
 
   docker:
     name: image builds from the lockfile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Fails if requirements.lock no longer satisfies the pyprojects
@@ -110,7 +112,7 @@ jobs:
 
   smoke-install:
     name: clean-install smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -126,7 +128,7 @@ jobs:
 
   lint:
     name: ruff (strict, full repo)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
