@@ -32,6 +32,16 @@ for the per-deploy cut workflow.
 
 ### Removed
 
+- **Dependabot.** Its weekly update PRs each started a CI run, which is the
+  Actions-minute cost the schedule removal above was meant to end, and the
+  Python lock is built by `uv pip compile`, which it never regenerated
+  properly. Nothing now proposes dependency or action updates: refresh the
+  floors and `requirements.lock`, and re-pin the action SHAs in `ci.yml`, by
+  hand at each release (`docs/RELEASING.md` section 4). If Dependabot
+  *security* updates are switched on in the repository settings, that is a
+  separate setting this file did not control; turn it off there too if the PRs
+  are not wanted.
+
 ### Security
 
 ## [0.6.0+hf.1] — 2026-10-12

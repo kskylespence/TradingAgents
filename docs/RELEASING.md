@@ -291,7 +291,7 @@ every wheel's sha256 checked (`pip install --require-hashes`), then the
 two local packages with `--no-deps`. `pyproject.toml` and
 `web/backend/pyproject.toml` only declare floors. Regenerate the lock
 after changing either pyproject, after an upstream sync, and whenever
-Dependabot or `pip-audit` reports an advisory:
+`pip-audit` reports an advisory:
 
 ```bash
 uv pip compile --universal --python-version 3.12 --generate-hashes \
@@ -400,6 +400,11 @@ audit` job (`pip-audit`, `npm audit`) runs on every push, and you can run the
 same two commands from step 3 and 4 above at any time. Run them before each
 release cut and now and then in between; a fix then needs the same single
 local pass, not a series of pushes.
+
+Dependabot is removed as well, so nothing proposes updates: refresh the
+floors and the lock (§2.3) and re-pin the action SHAs in `ci.yml` by hand when
+you cut a release, or sooner when an audit reports something. Look up each
+action's current release commit on GitHub and keep the `# vX.Y.Z` comment.
 
 Pushing a release tag does not build a Docker image either: Coolify builds
 the Dockerfile from git on the VPS. Run `docker-publish.yml` by hand only if

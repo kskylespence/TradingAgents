@@ -15,8 +15,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Actions are pinned to full commit SHAs (Dependabot keeps them current):
-# a moved or hijacked tag cannot change what runs here.
+# Actions are pinned to full commit SHAs: a moved or hijacked tag cannot change
+# what runs here. Nothing opens update PRs (Dependabot is removed), so re-pin
+# them by hand when cutting a release (docs/RELEASING.md section 4).
 # Runners are pinned to ubuntu-24.04, not ubuntu-latest: GitHub moves `latest` to
 # Ubuntu 26 on 2026-10-19, which would change the toolchain with no commit here.
 
