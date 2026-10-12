@@ -78,13 +78,17 @@ deploy builds.
 ### Prebuilt image (GHCR)
 
 Coolify can pull a prebuilt image instead of building on your VPS. The
-repo publishes to GitHub Container Registry on every `v*-hf.*` tag (see
-[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)):
+repo can publish to GitHub Container Registry, but **only when you run the
+workflow by hand** (see
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)).
+A release tag no longer builds an image, because the production app builds the
+Dockerfile from git on the VPS and nothing pulls the image:
 
 1. Cut a release tag per [`docs/RELEASING.md`](docs/RELEASING.md) (e.g.
    `v0.2.5-hf.7`).
-2. Wait for the **Publish Docker image** workflow to finish on GitHub
-   Actions.
+2. Run the **Publish Docker image** workflow on that tag
+   (`gh workflow run docker-publish.yml --ref v0.2.5-hf.7`, or Actions →
+   Publish Docker image → Run workflow) and wait for it to finish.
 3. In Coolify, switch the application from **Dockerfile** build to
    **Docker image** and set:
 

@@ -394,6 +394,13 @@ fastapi, so it runs in the main venv, not the root-only ones). After an
 upstream sync also import every module, because grep misses lazy imports
 (`docs/UPSTREAM-MERGE.md`).
 
-Run the weekly `dependency audit` checks (`pip-audit`, `npm audit`) now and
-then as well: they fail with no push when a new advisory is published, and
-a fix then needs the same single local pass, not a series of pushes.
+There is no scheduled CI run, to save Actions minutes, so nothing alerts you
+when an advisory is published against a locked dependency. The `dependency
+audit` job (`pip-audit`, `npm audit`) runs on every push, and you can run the
+same two commands from step 3 and 4 above at any time. Run them before each
+release cut and now and then in between; a fix then needs the same single
+local pass, not a series of pushes.
+
+Pushing a release tag does not build a Docker image either: Coolify builds
+the Dockerfile from git on the VPS. Run `docker-publish.yml` by hand only if
+Coolify is switched to pull from GHCR (`DEPLOY.md`, "Prebuilt image").

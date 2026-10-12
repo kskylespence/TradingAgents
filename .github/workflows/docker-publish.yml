@@ -1,8 +1,12 @@
 # Build and push the Coolify-deployable image to GHCR so small VPS hosts
 # can pull a prebuilt artifact instead of running npm ci + pip install on-box.
 #
-# Trigger: manual dispatch, or push a fork release tag (v*-hf.* per
-# docs/RELEASING.md). Coolify can then use:
+# Trigger: manual dispatch only (Actions tab, or
+# `gh workflow run docker-publish.yml --ref v0.6.0-hf.1`). Production does not
+# use this image: Coolify builds the Dockerfile from git on the VPS, so a tag
+# push no longer pays for a build nobody pulls. Run it by hand when Coolify
+# should pull a prebuilt image; dispatched on a tag it is tagged by that
+# version, which Coolify can use:
 #   ghcr.io/kskylespence/tradingagents:<tag-with-plus-as-dash>
 #
 # See DEPLOY.md § "Prebuilt image (GHCR)".
@@ -10,9 +14,6 @@
 name: Publish Docker image
 
 on:
-  push:
-    tags:
-      - "v*-hf.*"
   workflow_dispatch:
 
 permissions:

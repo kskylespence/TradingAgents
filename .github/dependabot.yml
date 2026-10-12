@@ -2,8 +2,9 @@
 #
 # Python: requirements.lock is produced by `uv pip compile --generate-hashes`
 # (docs/RELEASING.md §2.3), which Dependabot does not regenerate reliably.
-# The scheduled `audit` job in ci.yml is what flags a new advisory against
-# the lock; fix it by regenerating the lock with the documented command.
+# The `audit` job in ci.yml (every push) and the local audit in
+# docs/RELEASING.md section 4 flag a new advisory against the lock; fix it by
+# regenerating the lock with the documented command.
 # The pip entries below still raise PRs for the pyproject floors.
 version: 2
 updates:

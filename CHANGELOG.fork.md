@@ -18,6 +18,16 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+- **No weekly CI run; the image publish is manual.** The scheduled run
+  spent a whole pass of the test matrix (about ten jobs) every week only to
+  catch a new advisory, and a release tag started a GHCR build that nothing
+  pulls, because Coolify builds the Dockerfile from git on the VPS. Both
+  cost paid Actions minutes. CI now runs on pushes to `main`, release
+  branches and pull requests only, and `docker-publish.yml` runs only when
+  started by hand. The cost: nothing alerts you to a new advisory between
+  pushes, so run `pip-audit` and `npm audit` (`docs/RELEASING.md` section 4)
+  before each release and now and then in between.
+
 ### Fixed
 
 ### Removed

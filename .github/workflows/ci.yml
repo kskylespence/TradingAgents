@@ -4,10 +4,9 @@ on:
   push:
     branches: [main, 'v[0-9]+.[0-9]+.[0-9]+']
   pull_request:
-  schedule:
-    # Weekly, so a newly published advisory against a locked dependency
-    # fails the audit job even when nobody pushes.
-    - cron: "17 6 * * 1"
+  # No scheduled run: it spent a full pass of the matrix each week (Actions
+  # minutes are paid for). New advisories are caught by the audit job on every
+  # push, and by the local audit in docs/RELEASING.md section 4.
 
 permissions:
   contents: read
