@@ -148,8 +148,8 @@ failed only in the full run. They use the live module now; do not reload it.
 Upstream's `tests/test_cache_writes.py` used `errno.EDEADLOCK`, which macOS does
 not define; `dataflows/files.py` has a `_EDEADLOCK` constant now.
 
-Verified after merge, all on this machine: root 1339 passed in the main venv
-and 1327 passed (2 skipped for named reasons, see RELEASING.md §4) in fresh
+Verified after merge, all on this machine: root 1341 passed in the main venv
+and 1329 passed (2 skipped for named reasons, see RELEASING.md §4) in fresh
 py3.11, 3.12, 3.12 + `TZ=America/New_York` and 3.14 environments; web backend
 291 passed; frontend 77 passed, build clean, `npm audit` clean; ruff clean;
 `pip-audit` on `requirements.lock` clean; the Docker image built from the lock;
