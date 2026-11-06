@@ -144,9 +144,13 @@ release commit itself from the *next* draft. Don't change it.
 
 ### 1.6 Trigger Coolify redeploy
 
-If Coolify's auto-deploy webhook on `main` is enabled, the `git push`
-above already kicked off a build. Otherwise hit the redeploy button
-in the Coolify dashboard (or use the `coolify` MCP tools).
+Auto-deploy on push is off: the `git push` above does not start a build
+(checked at the 0.7.1+hf.1 deploy, when two pushes to `main` queued
+nothing). Start it yourself, either with the `coolify` MCP `deploy` tool
+(the application's UUID comes from `search_resources`) or with the
+Deploy button in the Coolify dashboard. Coolify builds the Dockerfile from
+the tip of `main`, so push before you deploy.
+The build happens on the VPS and spends no GitHub Actions minutes.
 
 ### 1.7 Verify the deployed build matches the tag
 

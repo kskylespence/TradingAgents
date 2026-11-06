@@ -201,3 +201,9 @@ ruff clean; the Docker image builds and reports `0.7.1 0.7.1+hf.1`; all 137
 modules of `tradingagents`, `cli` and `app` import. One backend test,
 `test_runs_smoke.py::test_sse_stream_yields_start_and_complete`, failed once
 in four full runs and passed alone; it looks timing-dependent.
+
+Deployed 2026-11-06 with the Coolify MCP `deploy` tool. Auto-deploy on push is
+off, so neither push started a build. Coolify built `main` @ `0c77c8b` in about
+two minutes. `/api/health` then reported `0.7.1+hf.1`, with the database and
+Ollama Cloud OK, and the startup log shows Alembic and uvicorn starting
+without errors.
