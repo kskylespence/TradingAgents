@@ -10,11 +10,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# What msvcrt.locking raises when another writer holds the lock. Windows has
-# errno.EDEADLOCK (36); macOS has none, so the Windows lock code and its tests
-# still load there.
-_EDEADLOCK = getattr(errno, "EDEADLOCK", 36)
-
 
 def replace_file(path, write: Callable[[str], None]) -> None:
     """Write ``path`` through a uniquely named temp file beside it, then move it into place.
@@ -79,12 +74,12 @@ def _hold_windows(handle, wait: bool = True) -> Iterator[bool]:
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
             break
         except OSError as exc:
-            if not wait and exc.errno in (errno.EACCES, _EDEADLOCK):
+            if not wait and exc.errno in (errno.EACCES, errno.EDEADLK):
                 yield False   # another writer holds it
                 return
             # LK_LOCK gives up after about ten seconds of another writer's hold;
             # any other failure is not a wait.
-            if exc.errno != _EDEADLOCK:
+            if exc.errno != errno.EDEADLK:
                 raise
     try:
         yield True

@@ -21,9 +21,8 @@ web/frontend/dist
 web/backend/app/static/*
 
 # Local secrets and environment files
-.env
-.env.local
-.env.*.local
+# every .env file anywhere (upstream v0.7.1)
+**/.env*
 
 # Editor / OS noise
 .idea
