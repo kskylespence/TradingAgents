@@ -20,6 +20,13 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **The pre-push hook now runs.** `core.fileMode` is false in this clone, so
+  `.githooks/pre-push`, `scripts/ci-local.sh` and `scripts/publish-image.sh`
+  were committed without the executable bit, and git skipped the hook on the
+  0.7.1+hf.1 push. That release had passed the full local run before it was
+  cut; only the hook was skipped. The executable bit is now set in the index,
+  which also fixes it for any new clone.
+
 ### Removed
 
 ### Security
