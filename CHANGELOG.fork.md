@@ -18,6 +18,18 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+### Security
+
+## [0.7.1+hf.1] — 2026-11-06
+
+### Added
+
+### Changed
+
 - **CI runs on this machine, not on GitHub.** `ci.yml` used to run its whole
   matrix (about ten jobs) on every push to `main`, every release branch and
   every pull request, and Actions minutes are paid for. It now starts only by
@@ -47,11 +59,11 @@ for the per-deploy cut workflow.
   spent a whole pass of the test matrix (about ten jobs) every week only to
   catch a new advisory, and a release tag started a GHCR build that nothing
   pulls, because Coolify builds the Dockerfile from git on the VPS. Both
-  cost paid Actions minutes. CI now runs on pushes to `main`, release
-  branches and pull requests only, and `docker-publish.yml` runs only when
-  started by hand. The cost: nothing alerts you to a new advisory between
-  pushes, so run `pip-audit` and `npm audit` (`docs/RELEASING.md` section 4)
-  before each release and now and then in between.
+  cost paid Actions minutes. `docker-publish.yml` runs only when started by
+  hand (CI on push was removed later in this release; see the first entry
+  above). The cost: nothing alerts you to a new advisory between releases,
+  so run `pip-audit` and `npm audit` (`docs/RELEASING.md` section 4) before
+  each release and now and then in between.
 
 ### Fixed
 
@@ -1160,7 +1172,8 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.1...HEAD
+[0.7.1+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...v0.7.1-hf.1
 [0.6.0+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...v0.6.0-hf.1
 [0.3.1+hf.5]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...v0.3.1-hf.5
 [0.3.1+hf.4]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1...v0.3.1-hf.4
