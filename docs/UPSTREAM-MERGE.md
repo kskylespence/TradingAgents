@@ -1,14 +1,15 @@
 # Upstream merges
 
 Latest: [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
-**v0.6.0** (2026-10-03) → fork **`0.6.0+hf.1`**. Earlier: v0.5.1 → `0.5.1+hf.1`
-(2026-09-24), v0.3.1 → `0.3.1+hf.1` (2026-07-08).
+**v0.7.1** (plus `upstream/main` @ `9fa1196`, a README change) → fork
+**`0.7.1+hf.1`** (2026-11-06). Earlier: v0.6.0 → `0.6.0+hf.1` (2026-10-12),
+v0.5.1 → `0.5.1+hf.1` (2026-09-24), v0.3.1 → `0.3.1+hf.1` (2026-07-08).
 
 ## Current state
 
 | | Fork | Upstream |
 |---|------|----------|
-| Version | `0.6.0+hf.1` (web backend; the package itself reports `0.6.0`) | `v0.6.0` (2026-10-03) |
+| Version | `0.7.1+hf.1` (web backend; the package itself reports `0.7.1`) | `v0.7.1` |
 | Python | 3.11+ (image runs 3.12) | 3.11+ (image runs 3.13) |
 | Web UI / Coolify | Yes | No |
 | Resilience (run timeout, Ollama circuit breaker) | Yes | Partial (`TRADINGAGENTS_LLM_MAX_RETRIES` in v0.3.1) |
@@ -39,9 +40,9 @@ Follow [`docs/RELEASING.md`](RELEASING.md) §2 (upstream merge) when ready:
    release and every later sync re-diffs from there. Do it on a branch.
 3. Resolve conflicts prioritizing fork-owned paths:
    - `web/backend/`, `web/frontend/`, `DEPLOY.md`, `CHANGELOG.fork.md`
-4. Run the whole local CI pass, RELEASING.md §4 (root suite on the CI Python
-   versions, web backend, frontend, ruff, `pip-audit`, the Docker build).
-   Nothing is pushed until it is green.
+4. Run the whole local CI pass, `scripts/ci-local.sh` (RELEASING.md §4: root
+   suite on the CI Python versions, web backend, frontend, ruff, `pip-audit`,
+   the Docker build). Nothing is pushed until it is green.
 5. Set the web version to `<new upstream base>+hf.1` in the sync itself
    (`tests/test_fork_version.py` enforces it), then cut per RELEASING.md §1 —
    reset the counter only when the upstream *base* version moves
@@ -154,3 +155,49 @@ py3.11, 3.12, 3.12 + `TZ=America/New_York` and 3.14 environments; web backend
 291 passed; frontend 77 passed, build clean, `npm audit` clean; ruff clean;
 `pip-audit` on `requirements.lock` clean; the Docker image built from the lock;
 all 137 modules of `tradingagents`, `cli` and `app` import.
+
+**v0.7.1 sync: 2026-11-06.** Squash-merged the tag `v0.7.1` (commit `c454491`,
+which also covers v0.7.0), 33 commits past `v0.6.0`, on branch
+`chore/upstream-v0.7.1`; recorded it with `-s ours`, then merged
+`upstream/main` @ `9fa1196` (README only). 6 files conflicted:
+
+- `Dockerfile`: kept ours (the web stack), as in every sync.
+- `.dockerignore`: kept ours and took upstream's `**/.env*`, which keeps every
+  `.env` file, in any folder, out of the image.
+- `cli/prompts.py`: upstream added a ChatGPT-plan model picker and a shared
+  `_select_listed_model`; the fork's live Ollama picker stays beside it.
+  Upstream still defines `detect_asset_type` locally; the fork keeps importing
+  it from `tradingagents.asset_types`.
+- `tradingagents/dataflows/files.py` and `tests/test_cache_writes.py`: took
+  upstream. It uses `errno.EDEADLK`, which macOS defines, so the fork's
+  `_EDEADLOCK` shim from the v0.6.0 sync is gone.
+- `llm_clients/openai_client.py`: union of imports; the heartbeat `ContextVar`
+  stays. Upstream's signed-in provider (`chatgpt`) adds a credential branch
+  next to the fork's `OLLAMA_API_KEY` fallback.
+
+What came in that a future sync should know about:
+
+- **A `chatgpt` provider** that signs in with a ChatGPT plan
+  (`llm_clients/chatgpt_auth.py`), and two new runtime deps, `cryptography`
+  and `packaging`. Production still runs on Ollama Cloud only.
+- **`cli/updates.py` replaces `cli/announcements.py` and `cli/config.py`.** At
+  an interactive terminal the CLI checks GitHub for a newer *upstream*
+  release and fetches notices from `api.tauric.ai`, in the background. It is
+  off in CI and when `TRADINGAGENTS_NO_UPDATE_CHECK` is set; the web
+  app never calls it. The release it compares against is TauricResearch's, so
+  for this fork the "newer release" notice means "upstream has a sync waiting".
+- **`.github/workflows/release-assets.yml`** runs only when a GitHub release is
+  published. The fork does not publish GitHub releases, so it costs nothing;
+  it was kept unchanged so the next sync does not conflict on it.
+- Many data fixes: memory settlement on final closes across long market
+  closures, SEC EDGAR one row per period, Yahoo price precision, tool dates
+  sent as `YYYY-MM-DD`, Polymarket long-shot odds.
+
+Verified after merge, all on this machine with `scripts/ci-local.sh`: root suite
+1479 passed (2 skipped for named reasons) on py3.11, 3.12, 3.13, 3.14 and
+3.12 + `TZ=America/New_York`, and 1491 passed in the main venv; web backend
+291 passed; frontend 77 passed, build clean; `npm audit` and `pip-audit` clean;
+ruff clean; the Docker image builds and reports `0.7.1 0.7.1+hf.1`; all 137
+modules of `tradingagents`, `cli` and `app` import. One backend test,
+`test_runs_smoke.py::test_sse_stream_yields_start_and_complete`, failed once
+in four full runs and passed alone; it looks timing-dependent.

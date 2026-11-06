@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Run the local CI (scripts/ci-local.sh) before a push that CI used to cover:
+# main, a vX.Y.Z branch, or a tag. GitHub Actions no longer runs on push (minutes
+# are paid for), so this is the check that stands between a commit and origin.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+# Other branches push without the run; deleting a ref never runs it.
+
+zero=0000000000000000000000000000000000000000
+run=0
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue
+  case $remote_ref in
+    refs/heads/main|refs/tags/*) run=1 ;;
+    refs/heads/v[0-9]*.[0-9]*.[0-9]*) run=1 ;;
+  esac
+done
+
+[ "$run" -eq 1 ] || exit 0
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "pre-push: the working tree has uncommitted changes, so local CI would not test what is being pushed." >&2
+  echo "pre-push: commit or stash them first." >&2
+  exit 1
+fi
+
+echo "pre-push: running local CI (scripts/ci-local.sh, about 6 minutes)..." >&2
+exec "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"

@@ -40,8 +40,9 @@ Before you start, you should have:
   `OLLAMA_BASE_URL=https://ollama.com/v1` and `OLLAMA_API_KEY`. Other
   providers can be added later via the in-app **Settings** page.
 
-You do **not** need Docker on your workstation; Coolify builds the image on
-the VPS itself. For small VPS hosts (2 vCPU / 8 GB), prefer a
+You do **not** need Docker on your workstation to deploy; Coolify builds the
+image on the VPS itself. (The local CI run before a push, `scripts/ci-local.sh`,
+and a prebuilt image do use Docker Desktop.) For small VPS hosts (2 vCPU / 8 GB), prefer a
 [prebuilt image from GHCR](#prebuilt-image-ghcr) so deploy does not
 saturate CPU during `npm ci` + `pip install`.
 
@@ -77,18 +78,30 @@ deploy builds.
 
 ### Prebuilt image (GHCR)
 
-Coolify can pull a prebuilt image instead of building on your VPS. The
-repo can publish to GitHub Container Registry, but **only when you run the
-workflow by hand** (see
-[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml)).
-A release tag no longer builds an image, because the production app builds the
-Dockerfile from git on the VPS and nothing pulls the image:
+Coolify can pull a prebuilt image instead of building on your VPS. Build it
+on your workstation with Docker Desktop and push it to GitHub Container
+Registry. This spends no GitHub Actions minutes. Nothing builds an image on a
+release tag: by default the production app builds the Dockerfile from git on
+the VPS and nothing pulls the image.
 
 1. Cut a release tag per [`docs/RELEASING.md`](docs/RELEASING.md) (e.g.
-   `v0.2.5-hf.7`).
-2. Run the **Publish Docker image** workflow on that tag
-   (`gh workflow run docker-publish.yml --ref v0.2.5-hf.7`, or Actions →
-   Publish Docker image → Run workflow) and wait for it to finish.
+   `v0.2.5-hf.7`) and check it out. The script refuses a commit that is not a
+   `v*-hf.*` tag, or a working tree with uncommitted changes.
+2. Once per workstation, log in with a GitHub token that has
+   `write:packages`: `docker login ghcr.io -u <github-user>`.
+   Then build and push:
+
+   ```bash
+   scripts/publish-image.sh                         # linux/amd64 VPS
+   PLATFORM=linux/arm64 scripts/publish-image.sh    # ARM VPS
+   ```
+
+   It builds for the VPS's CPU (an Apple Silicon Mac builds `amd64` through
+   emulation, so allow several minutes), pushes `:<version>` and `:latest`,
+   and then reads the tag back from the registry to confirm the push.
+   The **Publish Docker image** workflow
+   ([`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml),
+   manual only) does the same on GitHub's runners if you ever need it to.
 3. In Coolify, switch the application from **Dockerfile** build to
    **Docker image** and set:
 

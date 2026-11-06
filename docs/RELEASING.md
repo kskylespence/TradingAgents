@@ -19,6 +19,7 @@ the version installable by pip but unpublishable to PyPI by design
 | 0.2.5+hf.1                   | v0.2.5-hf.1   | TauricResearch v0.2.5          |
 | 0.2.5+hf.2                   | v0.2.5-hf.2   | TauricResearch v0.2.5          |
 | 0.6.0+hf.1                   | v0.6.0-hf.1   | TauricResearch v0.6.0          |
+| 0.7.1+hf.1                   | v0.7.1-hf.1   | TauricResearch v0.7.1          |
 
 Note the asymmetry: the **version string** uses `+` (PEP 440 local
 segment delimiter), the **git tag** uses `-` (`+` is not a legal git
@@ -121,8 +122,8 @@ __version__ = "0.2.5+hf.2"
 
 ### 1.5 Run CI locally, then commit, tag, push
 
-Run the whole local pass in [section 4](#4-run-ci-locally-before-every-push)
-first. A push is for a branch you already know is green.
+Run `scripts/ci-local.sh` ([section 4](#4-run-ci-locally-before-every-push))
+first; the pre-push hook runs it again on the push. A push is for a branch you already know is green.
 
 ```powershell
 git add CHANGELOG.fork.md web/backend/app/__init__.py
@@ -361,51 +362,66 @@ than the library.
 
 ## 4. Run CI locally before every push
 
-GitHub Actions minutes are paid for, and a push that fails costs a full
-run. Run everything CI runs here first, push one finished branch, and do
-not push to find out whether it passes. From the repo root with the venv
-from `CLAUDE.md` (`~/.local/bin/uv`, Docker Desktop running):
+GitHub Actions minutes are paid for, so CI does not run on GitHub any more:
+`ci.yml` starts only by hand. The same jobs run on this machine:
 
 ```bash
-# 1. Root suite, as CI runs it: root package only, one run a hair away from UTC.
-for v in 3.11 3.12 3.14; do
-  uv venv -q --python $v /tmp/ci-$v && uv pip install -q --python /tmp/ci-$v/bin/python -e '.[dev]'
-  /tmp/ci-$v/bin/python -m pytest -q
-done
-TZ=America/New_York /tmp/ci-3.12/bin/python -m pytest -q      # the New York run
-# 2. Web backend (needs the root package and the backend installed) and lint
-.venv/bin/python -m pytest -q && (cd web/backend && ../../.venv/bin/python -m pytest -q)
-.venv/bin/ruff check .
-# 3. Frontend, exactly as CI: npm ci checks the lockfile against package.json
-(cd web/frontend && npm ci && npm run lint && npm test && npm run build && npm audit --audit-level=moderate)
-# 4. Advisories on what the image installs, and the image itself
-uvx pip-audit -r requirements.lock --require-hashes --disable-pip
-docker build --tag tradingagents:ci .
-docker run --rm --entrypoint python tradingagents:ci -c "import tradingagents, app; print(tradingagents.__version__, app.__version__)"
-# 5. Fresh install with no dev extras, as the clean-install job does
-uv venv -q --python 3.12 /tmp/ci-smoke && uv pip install -q --python /tmp/ci-smoke/bin/python .
-(cd /tmp && /tmp/ci-smoke/bin/python -c "import tradingagents, cli.main")
+scripts/ci-local.sh
 ```
 
-Read the counts, not just the exit codes: a run that collected nothing
-exits 0 too. Skips must have a reason you can name (the Bedrock test needs
-`pip install -e '.[bedrock]'`; `test_run_service_error_format.py` needs
-fastapi, so it runs in the main venv, not the root-only ones). After an
-upstream sync also import every module, because grep misses lazy imports
-(`docs/UPSTREAM-MERGE.md`).
+It needs `uv`, Node 24 with npm, and Docker Desktop running, and takes about
+six minutes. It runs, in fresh environments under `$TMPDIR/tradingagents-ci`:
 
-There is no scheduled CI run, to save Actions minutes, so nothing alerts you
-when an advisory is published against a locked dependency. The `dependency
-audit` job (`pip-audit`, `npm audit`) runs on every push, and you can run the
-same two commands from step 3 and 4 above at any time. Run them before each
-release cut and now and then in between; a fix then needs the same single
-local pass, not a series of pushes.
+1. the root suite on py3.11, 3.12, 3.13 and 3.14 (root package only, `TZ=UTC`),
+   and once more on 3.12 with `TZ=America/New_York`;
+2. the web backend suite (root and backend installed, py3.12);
+3. the frontend exactly as CI: `npm ci`, `npm run lint`, `npm test`, `npm run build`;
+4. `pip-audit` on `requirements.lock` and `npm audit --audit-level=moderate`;
+5. `docker build` from the lock, then the image's two version strings;
+6. a fresh install with no dev extras, imported from outside the repo;
+7. `ruff check .` with the latest ruff, as CI installs it.
 
-Dependabot is removed as well, so nothing proposes updates: refresh the
-floors and the lock (§2.3) and re-pin the action SHAs in `ci.yml` by hand when
-you cut a release, or sooner when an audit reports something. Look up each
-action's current release commit on GitHub and keep the `# vX.Y.Z` comment.
+Each step ends **PASS**, **FAIL** or **DID-NOT-RUN**, with its log in
+`$TMPDIR/tradingagents-ci/logs/`. A missing tool is a FAIL and every step it
+blocks is DID-NOT-RUN; the script exits 0 only when every step ran and passed.
+A pytest step also fails when it reports no passed tests. Read the counts in the
+logs, not just the verdict. Expected skips have reasons you can name: the
+Bedrock test needs `pip install -e '.[bedrock]'`, and
+`test_run_service_error_format.py` needs fastapi, so it runs in the main venv,
+not the root-only ones. After an upstream sync also import every module,
+because grep misses lazy imports (`docs/UPSTREAM-MERGE.md`).
+
+**The pre-push hook runs it for you.** Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-push` runs `scripts/ci-local.sh` before a push to `main`, a
+`vX.Y.Z` branch or a tag (what CI used to cover). It refuses the push if the
+working tree has uncommitted changes, since the run would test something other
+than what is pushed. Pushes of other branches skip it.
+
+When you add a job to `ci.yml`, add the same step to the script. Run `ci.yml`
+on GitHub (`gh workflow run ci.yml --ref <ref>`) only for something the local
+run cannot give, such as the Linux runner itself.
+
+Nothing runs on a schedule and Dependabot is removed, so nothing alerts you
+when an advisory is published against a locked dependency, and nothing proposes
+updates. Run the script (or just its two audits) before each release cut and
+now and then in between. At each release, refresh by hand:
+
+- the lock, with `--upgrade` added to the §2.3 command;
+- the frontend's exact pins (`npm outdated` in `web/frontend`; keep
+  `@types/node` on the Node major the image runs);
+- the action SHAs in `ci.yml` and `docker-publish.yml`: look up each action's
+  latest release commit on GitHub and keep the `# vX.Y.Z` comment.
+
+The pyproject floors follow a different rule: each is the lowest release with
+no known advisory. To check them, write each `>=` floor as an `==` pin in a
+scratch file and run `uvx pip-audit --no-deps --disable-pip -r <file>`.
 
 Pushing a release tag does not build a Docker image either: Coolify builds
-the Dockerfile from git on the VPS. Run `docker-publish.yml` by hand only if
-Coolify is switched to pull from GHCR (`DEPLOY.md`, "Prebuilt image").
+the Dockerfile from git on the VPS. If Coolify is switched to pull from GHCR
+(`DEPLOY.md`, "Prebuilt image"), build and push the image from this machine
+with `scripts/publish-image.sh` rather than the `docker-publish.yml` workflow.

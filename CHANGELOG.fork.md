@@ -18,6 +18,31 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+- **CI runs on this machine, not on GitHub.** `ci.yml` used to run its whole
+  matrix (about ten jobs) on every push to `main`, every release branch and
+  every pull request, and Actions minutes are paid for. It now starts only by
+  hand. `scripts/ci-local.sh` runs the same jobs locally (root suite on
+  py3.11–3.14 plus a New York time zone run, web backend, frontend, both
+  audits, the Docker build, a clean install, ruff). Each step ends PASS, FAIL
+  or DID-NOT-RUN, and the script exits non-zero unless every step ran and
+  passed, so a missing tool cannot pass as a clean run. A pre-push hook
+  (`.githooks/pre-push`, enabled with `git config core.hooksPath .githooks`)
+  runs it before a push to `main`, a release branch or a tag. The cost: GitHub
+  no longer checks pull requests, and a clone without the hook enabled can
+  push untested code. `docs/RELEASING.md` §4 has the details.
+- **The GHCR image is built on this machine.** `scripts/publish-image.sh`
+  builds the image with Docker Desktop for the VPS's CPU, pushes it, and then
+  reads the tag back from the registry. It refuses an untagged or dirty
+  checkout so the image always matches a release. It replaces running
+  `docker-publish.yml`, which is still there, manual only.
+- **Dependencies refreshed.** `requirements.lock` regenerated with
+  `--upgrade`; the larger moves are anthropic 2, google-genai 3, SQLAlchemy
+  2.1, langgraph 1.2.20, langchain-core 1.7, FastAPI 0.162, Starlette 1.10,
+  pandas 3.1, yfinance 1.8 and websockets 17. Frontend pins moved to the
+  latest minor of every package, plus jsdom 31 (test only); `@types/node`
+  stays on 24 to match the Node the image builds with. CI actions re-pinned:
+  `setup-python` and `setup-node` v7.1.0, `docker/login-action` v4.8.0. The
+  full local CI pass is green on the new versions.
 - **No weekly CI run; the image publish is manual.** The scheduled run
   spent a whole pass of the test matrix (about ten jobs) every week only to
   catch a new advisory, and a release tag started a GHCR build that nothing
@@ -43,6 +68,26 @@ for the per-deploy cut workflow.
   are not wanted.
 
 ### Security
+
+- **Dependency floors raised past known advisories.** Upstream v0.7.0 added
+  `cryptography>=42.0`, a release `pip-audit` reports 15 advisories against;
+  the root floor is now `>=50.0.0`, the same as the web backend's. The web
+  backend's `pyjwt` floor moves from `>=2.13.0` (15 advisories, fixed by
+  2.15.0) to `>=2.15.0`. The image already installed fixed versions from the
+  lock; the floors matter for a plain `pip install .`.
+
+### Upstream
+
+- **Synced with upstream v0.7.1** (from v0.6.0; also brings v0.7.0 and the
+  README change at `upstream/main` @ `9fa1196`). A `chatgpt` provider that
+  signs in with a ChatGPT plan; an update notice at an interactive CLI, which
+  checks upstream's GitHub releases and `api.tauric.ai` notices (off with
+  `TRADINGAGENTS_NO_UPDATE_CHECK=1`; the web app never runs it); memory
+  settlement on final closes, including across long market closures; SEC
+  EDGAR statements one row per period; Azure OpenAI output-token cap and
+  endpoint fixes; and `.dockerignore` now keeps every `.env` file out of the
+  image. No checkpoint or config break for the web deploy. Details of the six
+  conflicts are in `docs/UPSTREAM-MERGE.md`.
 
 ## [0.6.0+hf.1] — 2026-10-12
 
