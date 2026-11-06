@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 # (fork-side; see CHANGELOG.fork.md). The deploy installs exact versions
 # from requirements.lock.
 dependencies = [
-    "cryptography>=42.0",
+    "cryptography>=50.0.0",
     "langchain-core>=1.6.5",
     "langchain-anthropic>=1.7.4",
     "langchain-google-genai>=4.4.0",

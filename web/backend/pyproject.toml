@@ -29,7 +29,7 @@ dependencies = [
     # no release since 2020 and forced bcrypt below 4.0. Hashes passlib
     # produced ($2a$/$2b$) verify unchanged — tests/test_password_hashing.py.
     "bcrypt>=4.3",
-    "pyjwt>=2.13.0",
+    "pyjwt>=2.15.0",
     "cryptography>=50.0.0",
     "python-multipart>=0.0.31",
     "httpx[http2]>=0.27",
