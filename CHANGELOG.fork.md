@@ -31,6 +31,13 @@ for the per-deploy cut workflow.
 
 ### Security
 
+- **Frontend build tool patched for GHSA-p4f5-76q4-ffq7.** vite 8.3.0 to 8.3.6
+  has a remote code execution flaw. The pin moves from 8.3.6 to 8.3.7, the
+  fixed release. vite runs in the Docker build stage and on the dev machine;
+  the runtime image carries only the built bundle. The lockfile also moves the
+  `@rolldown/*` bindings from 1.2.16 to 1.2.18, because vite 8.3.7 requires
+  rolldown ~1.2.18.
+
 ## [0.7.1+hf.1] — 2026-11-06
 
 ### Added
