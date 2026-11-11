@@ -148,6 +148,17 @@ class UserSummary(_FrontendModel):
     run_count: int
 
 
+def _check_password_bytes(v: str) -> str:
+    """Reject a password bcrypt would silently truncate (over 72 bytes)."""
+    encoded = len(v.encode("utf-8"))
+    if encoded > _BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(
+            f"password must be at most {_BCRYPT_MAX_PASSWORD_BYTES} bytes "
+            f"when UTF-8 encoded (got {encoded})"
+        )
+    return v
+
+
 class CreateUserRequest(_FrontendModel):
     """Body for ``POST /api/users``.
 
@@ -165,13 +176,22 @@ class CreateUserRequest(_FrontendModel):
     @field_validator("password")
     @classmethod
     def _password_fits_bcrypt(cls, v: str) -> str:
-        encoded = len(v.encode("utf-8"))
-        if encoded > _BCRYPT_MAX_PASSWORD_BYTES:
-            raise ValueError(
-                f"password must be at most {_BCRYPT_MAX_PASSWORD_BYTES} bytes "
-                f"when UTF-8 encoded (got {encoded})"
-            )
-        return v
+        return _check_password_bytes(v)
+
+
+class ResetPasswordRequest(_FrontendModel):
+    """Body for ``PATCH /api/users/{user_id}/password``.
+
+    Same password rules as ``CreateUserRequest``: at least 8 characters and
+    at most 72 bytes UTF-8 encoded.
+    """
+
+    password: str = Field(min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def _password_fits_bcrypt(cls, v: str) -> str:
+        return _check_password_bytes(v)
 
 
 # --------------------------------------------------------------------------- #

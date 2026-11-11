@@ -113,6 +113,14 @@ export interface CreateUserRequest {
   password: string;
 }
 
+/**
+ * Body for PATCH /api/users/:id/password. Mirrors
+ * `app/schemas.py:ResetPasswordRequest` (8+ characters, at most 72 bytes).
+ */
+export interface ResetPasswordRequest {
+  password: string;
+}
+
 // ----- Settings -----
 
 export interface ApiKeyStatus {

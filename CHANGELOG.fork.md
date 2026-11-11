@@ -16,6 +16,17 @@ for the per-deploy cut workflow.
 
 ### Added
 
+- **Admins can reset a user's password.** A locked-out user had no way back
+  in: passwords are stored only as bcrypt hashes, so nobody can read one, and
+  the Users card could only create and delete accounts. Delete-and-recreate
+  also fails for anyone who owns runs. `PATCH /api/users/{user_id}/password`
+  (admin only) sets a new password with the same rules as create, and the
+  Users card has a "Reset password" control on each standard-user row. The
+  bootstrap admin is refused, because its hash is rewritten from
+  `ADMIN_PASSWORD_HASH` on every boot, and so is every other admin, so one
+  admin cannot take over another's account. A reset does not end sessions the
+  user already holds, because the JWT is stateless.
+
 ### Changed
 
 ### Fixed
@@ -30,6 +41,12 @@ for the per-deploy cut workflow.
 ### Removed
 
 ### Security
+
+- **Validation errors no longer echo the rejected value.** FastAPI's default
+  `422` body includes `detail[].input`, the value the client sent. A
+  too-short or over-long password on `POST /api/users` was sent straight back
+  in the response, where proxies and error trackers can record it. Every
+  `422` now drops `input` and keeps the field location and message.
 
 - **Frontend build tool patched for GHSA-p4f5-76q4-ffq7.** vite 8.3.0 to 8.3.6
   has a remote code execution flaw. The pin moves from 8.3.6 to 8.3.7, the

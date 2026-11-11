@@ -16,7 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { api, ApiError } from "@/lib/api";
-import type { CreateUserRequest, UserSummary } from "@/lib/types";
+import type {
+  CreateUserRequest,
+  ResetPasswordRequest,
+  UserSummary,
+} from "@/lib/types";
 
 export const USERS_QUERY_KEY = ["users"] as const;
 
@@ -154,13 +158,106 @@ function CreateUserForm() {
   );
 }
 
-function UserRow({ user, canDelete }: { user: UserSummary; canDelete: boolean }) {
+function ResetPasswordForm({
+  user,
+  onDone,
+}: {
+  user: UserSummary;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [password, setPassword] = useState("");
+
+  const resetMutation = useMutation({
+    mutationFn: (body: ResetPasswordRequest) =>
+      api.patch<void>(`/api/users/${user.id}/password`, body),
+    onSuccess: () => {
+      toast({ title: `Password reset for ${user.username}` });
+      onDone();
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not reset password",
+        description: errorMessage(err, "Please try again."),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const passwordTooLong = utf8Bytes(password) > MAX_PASSWORD_BYTES;
+  const canSubmit =
+    codePoints(password) >= MIN_PASSWORD_LENGTH &&
+    !passwordTooLong &&
+    !resetMutation.isPending;
+  const inputId = `reset-password-${user.id}`;
+
+  return (
+    <form
+      className="space-y-2 pb-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!canSubmit) return;
+        resetMutation.mutate({ password });
+      }}
+    >
+      <Label htmlFor={inputId}>New password for {user.username}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          id={inputId}
+          type="password"
+          value={password}
+          autoComplete="new-password"
+          placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+          className="max-w-xs"
+          autoFocus
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!canSubmit}
+          aria-label={`Save password for ${user.username}`}
+        >
+          {resetMutation.isPending ? "Saving…" : "Save"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={resetMutation.isPending}
+          aria-label={`Cancel resetting ${user.username}`}
+          onClick={onDone}
+        >
+          Cancel
+        </Button>
+      </div>
+      {passwordTooLong ? (
+        <p className="text-sm text-destructive">
+          Too long — passwords are limited to {MAX_PASSWORD_BYTES} bytes.
+        </p>
+      ) : null}
+      <p className="text-sm text-muted-foreground">
+        Tell {user.username} the new password yourself. Sessions they are
+        already signed into stay open.
+      </p>
+    </form>
+  );
+}
+
+function UserRow({
+  user,
+  canDelete,
+}: {
+  user: UserSummary;
+  canDelete: boolean;
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   // Deleting an account is irreversible and the rows sit close together, so
   // the first click arms rather than fires. Cheaper than a modal and it keeps
   // the destructive action two deliberate clicks away from a misaimed one.
   const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete<void>(`/api/users/${user.id}`),
@@ -179,61 +276,76 @@ function UserRow({ user, canDelete }: { user: UserSummary; canDelete: boolean })
   });
 
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-medium">{user.username}</span>
-          {user.role === "admin" ? (
-            <Badge variant="secondary">admin</Badge>
-          ) : null}
+    <div>
+      <div className="flex items-center justify-between gap-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{user.username}</span>
+            {user.role === "admin" ? (
+              <Badge variant="secondary">admin</Badge>
+            ) : null}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Added {formatCreated(user.created_at)} · {user.run_count}{" "}
+            {user.run_count === 1 ? "run" : "runs"}
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Added {formatCreated(user.created_at)} · {user.run_count}{" "}
-          {user.run_count === 1 ? "run" : "runs"}
-        </p>
-      </div>
 
-      {canDelete ? (
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            disabled={deleteMutation.isPending}
-            aria-label={
-              confirming
-                ? `Confirm delete ${user.username}`
-                : `Delete ${user.username}`
-            }
-            onClick={() => {
-              if (confirming) deleteMutation.mutate();
-              else setConfirming(true);
-            }}
-          >
-            {deleteMutation.isPending
-              ? "Deleting…"
-              : confirming
-                ? "Confirm?"
-                : "Delete"}
-          </Button>
-          {confirming && !deleteMutation.isPending ? (
+        {canDelete ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {!resetting ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Reset password for ${user.username}`}
+                onClick={() => setResetting(true)}
+              >
+                Reset password
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="sm"
-              aria-label={`Cancel deleting ${user.username}`}
-              onClick={() => setConfirming(false)}
+              className="text-destructive hover:text-destructive"
+              disabled={deleteMutation.isPending}
+              aria-label={
+                confirming
+                  ? `Confirm delete ${user.username}`
+                  : `Delete ${user.username}`
+              }
+              onClick={() => {
+                if (confirming) deleteMutation.mutate();
+                else setConfirming(true);
+              }}
             >
-              Cancel
+              {deleteMutation.isPending
+                ? "Deleting…"
+                : confirming
+                  ? "Confirm?"
+                  : "Delete"}
             </Button>
-          ) : null}
-        </div>
+            {confirming && !deleteMutation.isPending ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Cancel deleting ${user.username}`}
+                onClick={() => setConfirming(false)}
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {canDelete && resetting ? (
+        <ResetPasswordForm user={user} onDone={() => setResetting(false)} />
       ) : null}
     </div>
   );
 }
 
 /**
- * Admin-only account management: list, create, delete.
+ * Admin-only account management: list, create, reset password, delete.
  *
  * The security boundary is the backend's `require_admin` dependency, not
  * this component — hiding the card is presentation, not protection.
@@ -250,10 +362,11 @@ export default function UsersCard() {
       <CardHeader>
         <CardTitle>Users</CardTitle>
         <CardDescription>
-          Add or remove accounts that can sign in. Users who already own runs
-          can&apos;t be deleted — their analysis history is kept. Deleting
-          someone doesn&apos;t end a session they&apos;re already signed into;
-          that can take up to a week to expire.
+          Add or remove accounts that can sign in, or reset a password for
+          someone who is locked out. Users who already own runs can&apos;t be
+          deleted — their analysis history is kept. Deleting someone
+          doesn&apos;t end a session they&apos;re already signed into; that can
+          take up to a week to expire.
         </CardDescription>
       </CardHeader>
 
@@ -277,7 +390,7 @@ export default function UsersCard() {
               <UserRow
                 key={u.id}
                 user={u}
-                // Hide delete rather than disable it, so the UI never offers
+                // Hide delete and reset rather than disable them, so the UI never offers
                 // an action the API will refuse. Admins are excluded because
                 // this screen only ever creates standard users — admin
                 // accounts are managed through environment configuration.

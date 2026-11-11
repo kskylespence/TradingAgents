@@ -5,6 +5,7 @@ Endpoints (all require an **admin** JWT):
 - ``GET    /api/users``            → list[UserSummary]
 - ``POST   /api/users``            → 201 UserSummary
 - ``DELETE /api/users/{user_id}``  → 204
+- ``PATCH  /api/users/{user_id}/password`` → 204
 
 Replaces the previous "add a user by editing Python" workflow, where a new
 account meant adding a hardcoded seeder like ``ensure_rob_user`` plus an env
@@ -38,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import hash_password, require_admin
 from app.db import get_session
 from app.models import BOOTSTRAP_ADMIN_ID, Run, User
-from app.schemas import AuthUser, CreateUserRequest, UserSummary
+from app.schemas import AuthUser, CreateUserRequest, ResetPasswordRequest, UserSummary
 
 from . import register
 
@@ -238,6 +239,64 @@ async def delete_user(
         ) from None
 
     log.info("users.deleted", extra={"username": user.username})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------- #
+# PATCH /users/{user_id}/password                                             #
+# --------------------------------------------------------------------------- #
+
+
+@router.patch(
+    "/{user_id}/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def reset_password(
+    user_id: UUID,
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_session),
+    _admin: AuthUser = Depends(require_admin),
+) -> Response:
+    """Set a new password for an account, e.g. when its owner is locked out.
+
+    Passwords are stored only as bcrypt hashes, so an admin can replace a
+    password but never read one back.
+
+    The JWT is stateless: a reset does not end a session the user already
+    holds. See the revocation note in ``web/docs/api.md``.
+    """
+    if user_id == BOOTSTRAP_ADMIN_ID:
+        # `upsert_admin_user()` rewrites this row's hash from env on every
+        # boot, so a reset here would silently revert on the next restart.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "The bootstrap admin's password is set by environment "
+                "variables and cannot be reset here."
+            ),
+        )
+
+    user = await db.get(User, str(user_id))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    if user.role != "user":
+        # Standard users only, matching the UI. Without this, one admin could
+        # take over another admin's account, or change their own password
+        # without giving the old one.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only standard users' passwords can be reset here.",
+        )
+
+    user.password_hash = hash_password(body.password)
+    await db.commit()
+
+    log.info("users.password_reset", extra={"username": user.username})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

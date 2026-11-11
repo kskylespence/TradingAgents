@@ -478,3 +478,137 @@ def test_delete_unknown_user_is_not_found(client) -> None:
         "/api/users/00000000-0000-0000-0000-0000000000ff", headers=_hdrs()
     )
     assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# PATCH /api/users/{user_id}/password                                         #
+# --------------------------------------------------------------------------- #
+
+
+def _reset(client, user_id, password: str = "brand-new-pass"):
+    return client.patch(
+        f"/api/users/{user_id}/password",
+        json={"password": password},
+        headers=_hdrs(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_password_replaces_the_stored_hash(client, session_factory) -> None:
+    """The new password verifies against the stored hash; the old one does not."""
+    resp = _reset(client, PLAIN_USER_ID, "brand-new-pass")
+    assert resp.status_code == 204, resp.text
+    assert resp.content == b""
+
+    async with session_factory() as session:
+        row = await session.get(User, PLAIN_USER_ID)
+        assert row is not None
+        assert row.password_hash != "x" * 60
+        assert verify_password("brand-new-pass", row.password_hash)
+        assert not verify_password("wrong-password", row.password_hash)
+        # Nothing else about the account changes.
+        assert row.username == "rob@rob"
+        assert row.role == "user"
+
+
+def test_reset_password_requires_admin(client, act_as) -> None:
+    """A plain user cannot reset anyone's password, including their own."""
+    act_as("user", user_id=PLAIN_USER_ID)
+    assert _reset(client, PLAIN_USER_ID).status_code == 403
+
+
+def test_reset_password_requires_authentication(client, act_as) -> None:
+    act_as(None)
+    assert _reset(client, PLAIN_USER_ID).status_code == 401
+
+
+def test_reset_password_requires_csrf(client) -> None:
+    """State-changing, so the CSRF double-submit check applies."""
+    resp = client.patch(
+        f"/api/users/{PLAIN_USER_ID}/password", json={"password": "brand-new-pass"}
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_cannot_reset_the_bootstrap_admin(client, session_factory) -> None:
+    """The env-seeded admin's hash is rewritten from env on every boot, so a
+    reset here would silently revert on the next restart."""
+    resp = _reset(client, BOOTSTRAP_ADMIN_ID)
+    assert resp.status_code == 400, resp.text
+
+    async with session_factory() as session:
+        row = await session.get(User, str(BOOTSTRAP_ADMIN_ID))
+        assert row is not None
+        assert row.password_hash == "x" * 60
+
+
+def test_reset_password_unknown_user_is_not_found(client) -> None:
+    assert _reset(client, "00000000-0000-0000-0000-0000000000ff").status_code == 404
+
+
+@pytest.mark.parametrize("password", ["short", "x" * 73, "😀" * 19])
+@pytest.mark.asyncio
+async def test_reset_password_length_is_validated(
+    client, session_factory, password: str
+) -> None:
+    """Same rules as create: 8+ chars, at most 72 UTF-8 bytes. A rejected
+    reset leaves the old hash in place."""
+    assert _reset(client, PLAIN_USER_ID, password).status_code == 422
+
+    async with session_factory() as session:
+        row = await session.get(User, PLAIN_USER_ID)
+        assert row is not None
+        assert row.password_hash == "x" * 60
+
+
+def test_reset_password_response_never_echoes_the_password(client) -> None:
+    resp = _reset(client, PLAIN_USER_ID, "do-not-echo-me")
+    assert resp.status_code == 204
+    assert "do-not-echo-me" not in resp.text
+
+
+@pytest.mark.parametrize("password", ["secret1", "y" * 73])
+def test_rejected_password_is_not_echoed_in_the_422(client, password: str) -> None:
+    """FastAPI's default 422 puts the rejected value in ``detail[].input``.
+    For a password that would hand it back in the response body (and to
+    anything that records error bodies), so neither create nor reset may."""
+    reset = _reset(client, PLAIN_USER_ID, password)
+    assert reset.status_code == 422
+    assert password not in reset.text
+
+    create = client.post(
+        "/api/users",
+        json={"username": "echo-check", "password": password},
+        headers=_hdrs(),
+    )
+    assert create.status_code == 422
+    assert password not in create.text
+    # The reason is still there, so the client can explain the refusal.
+    assert create.json()["detail"][0]["loc"][-1] == "password"
+
+
+@pytest.mark.asyncio
+async def test_cannot_reset_another_admin(client, session_factory) -> None:
+    """Reset is for standard users only, as the UI and docs promise. Another
+    admin row (here the bootstrap admin is excluded separately) is refused,
+    so one admin cannot take over a peer's account."""
+    other_admin_id = "00000000-0000-0000-0000-00000000000a"
+    async with session_factory() as session:
+        session.add(
+            User(id=other_admin_id, username="peer-admin", password_hash="x" * 60, role="admin")
+        )
+        await session.commit()
+
+    resp = _reset(client, other_admin_id)
+    assert resp.status_code == 400, resp.text
+
+    async with session_factory() as session:
+        row = await session.get(User, other_admin_id)
+        assert row is not None
+        assert row.password_hash == "x" * 60
+
+
+def test_cannot_reset_your_own_password_here(client) -> None:
+    """The acting admin is an admin, so this route refuses it too."""
+    assert _reset(client, ACTING_ADMIN_ID).status_code == 400

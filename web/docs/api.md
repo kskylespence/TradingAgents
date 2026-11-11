@@ -163,8 +163,8 @@ initial wrong attempts.
 
 ## User administration
 
-`GET`/`POST`/`DELETE /api/users` let an **admin** manage accounts from the
-Settings page. All three take `Depends(require_admin)`, so a valid JWT with
+`GET`/`POST`/`DELETE /api/users` and `PATCH /api/users/{user_id}/password` let
+an **admin** manage accounts from the Settings page. All four take `Depends(require_admin)`, so a valid JWT with
 `role: "user"` gets `403`, not `401`.
 
 `UserSummary` (the only shape these endpoints return) has no `password` or
@@ -226,6 +226,29 @@ surprising and unrecoverable.
 > outstanding token. Closing this properly would mean checking user existence
 > in `get_current_user` (a query per request) or adding a token-version
 > column; both are out of scope for this change and neither is implemented.
+
+**Resetting a password.** `PATCH /api/users/{user_id}/password` takes
+`ResetPasswordRequest` (`{password}`) and returns `204` with no body. It is the
+fix for a locked-out user. Passwords are stored only as bcrypt hashes, so an
+admin can set a new password but can never read the old one back. The new
+password follows the same rules as create (8+ characters, at most 72 bytes),
+and a rejected request leaves the old hash in place.
+
+| Case | Status |
+|---|---|
+| Target is the bootstrap admin | `400` — `upsert_admin_user()` rewrites its hash from `ADMIN_PASSWORD_HASH` on every boot, so a reset would silently revert. Change the env var instead |
+| Target is any other admin, including the caller | `400` — standard users only, so one admin cannot take over another's account |
+| Password too short or over 72 bytes | `422` |
+| No such id | `404` |
+
+The UI offers reset only on standard-user rows, the same rows that offer
+delete, and the backend refuses the rest. As with delete, the JWT is stateless, so a reset does **not** end a
+session the user already holds; see the note above.
+
+**Validation errors never echo the value.** Every `422` drops FastAPI's
+`detail[].input` (the rejected value) and keeps `loc` and `msg`. Otherwise a
+too-short password or a malformed API key would come back in the response
+body. See `app/middleware/validation_errors.py`.
 
 ## Run lifecycle
 
@@ -500,6 +523,7 @@ are documented under each endpoint in `/api/docs`.
 | `GET` | `/api/users` | JWT (**admin**) | n/a | `UserSummary[]` (never a hash) |
 | `POST` | `/api/users` | JWT (**admin**) | required | `201` + `UserSummary` |
 | `DELETE` | `/api/users/{user_id}` | JWT (**admin**) | required | `204` |
+| `PATCH` | `/api/users/{user_id}/password` | JWT (**admin**) | required | `204` |
 | `GET` | `/api/health` | none | n/a | `HealthResponse` (`{status, version, db, disk_free_mb, active_run_id, ollama?}`), always HTTP 200 |
 | `GET` | `/api/announcements/` | JWT | n/a | `Announcement[]` (cached proxy) |
 

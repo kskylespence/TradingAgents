@@ -11,6 +11,8 @@
  *   - A 409 surfaces the backend's `detail` verbatim in a destructive
  *     toast (it already names the taken username / owned run count).
  *   - Delete calls DELETE /api/users/<id>.
+ *   - Reset password PATCHes /api/users/<id>/password, only for standard
+ *     users, with the same length rules as the create form.
  *
  * Mock style mirrors ``RunView.retry.test.tsx``: stub modules at the
  * boundary, keep the real exports via ``vi.importActual``.
@@ -27,6 +29,7 @@ import type { UserSummary } from "@/lib/types";
 const getSpy = vi.fn();
 const postSpy = vi.fn();
 const deleteSpy = vi.fn();
+const patchSpy = vi.fn();
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
@@ -37,6 +40,7 @@ vi.mock("@/lib/api", async () => {
       get: (...args: unknown[]) => getSpy(...args),
       post: (...args: unknown[]) => postSpy(...args),
       delete: (...args: unknown[]) => deleteSpy(...args),
+      patch: (...args: unknown[]) => patchSpy(...args),
     },
   };
 });
@@ -98,6 +102,7 @@ describe("UsersCard", () => {
     getSpy.mockReset().mockResolvedValue(USERS);
     postSpy.mockReset();
     deleteSpy.mockReset();
+    patchSpy.mockReset();
     toastSpy.mockReset();
   });
 
@@ -118,10 +123,16 @@ describe("UsersCard", () => {
     await screen.findByText("rob@rob");
 
     // acting-admin is both the current user and an admin.
-    expect(screen.queryByRole("button", { name: /delete acting-admin/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /delete acting-admin/i }),
+    ).toBeNull();
     // Plain users are deletable.
-    expect(screen.getByRole("button", { name: /delete rob@rob/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /delete freshling/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /delete rob@rob/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /delete freshling/i }),
+    ).toBeTruthy();
   });
 
   it("keeps the submit button disabled until both fields are long enough", async () => {
@@ -132,11 +143,11 @@ describe("UsersCard", () => {
     expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     await userEvent.type(screen.getByLabelText(/username/i), "ab");
-    await userEvent.type(screen.getByLabelText(/password/i), "short");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "short");
     expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     await userEvent.type(screen.getByLabelText(/username/i), "cd");
-    await userEvent.type(screen.getByLabelText(/password/i), "enough!!");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "enough!!");
     await waitFor(() => {
       expect((submit as HTMLButtonElement).disabled).toBe(false);
     });
@@ -155,7 +166,7 @@ describe("UsersCard", () => {
     await screen.findByText("rob@rob");
 
     await userEvent.type(screen.getByLabelText(/username/i), "  analyst  ");
-    await userEvent.type(screen.getByLabelText(/password/i), "password123");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "password123");
     await userEvent.click(screen.getByRole("button", { name: /add user/i }));
 
     await waitFor(() => {
@@ -175,7 +186,7 @@ describe("UsersCard", () => {
     await screen.findByText("rob@rob");
 
     await userEvent.type(screen.getByLabelText(/username/i), "rob@rob");
-    await userEvent.type(screen.getByLabelText(/password/i), "password123");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "password123");
     await userEvent.click(screen.getByRole("button", { name: /add user/i }));
 
     await waitFor(() => {
@@ -214,7 +225,9 @@ describe("UsersCard", () => {
     );
 
     expect(deleteSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /^delete freshling$/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /^delete freshling$/i }),
+    ).toBeTruthy();
   });
 
   it("DELETEs the selected user on the confirming click", async () => {
@@ -241,7 +254,7 @@ describe("UsersCard", () => {
 
     await userEvent.type(screen.getByLabelText(/username/i), "analyst");
     // 73 single-byte characters — one past the limit.
-    await userEvent.type(screen.getByLabelText(/password/i), "x".repeat(73));
+    await userEvent.type(screen.getByLabelText(/^password$/i), "x".repeat(73));
 
     const submit = screen.getByRole("button", { name: /add user/i });
     await waitFor(() => {
@@ -255,7 +268,7 @@ describe("UsersCard", () => {
     renderCard();
     await screen.findByText("rob@rob");
 
-    await userEvent.type(screen.getByLabelText(/password/i), "password123");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "password123");
     // Paste rather than type — 129 keystrokes is needlessly slow.
     await userEvent.click(screen.getByLabelText(/username/i));
     await userEvent.paste("a".repeat(129));
@@ -278,7 +291,7 @@ describe("UsersCard", () => {
     // 4 emoji: JS `.length` is 8 (UTF-16 code units) and would pass a naive
     // `>= 8` check, but Pydantic's min_length counts 4 code points and 422s.
     await userEvent.paste(""); // focus guard for the paste below
-    await userEvent.click(screen.getByLabelText(/password/i));
+    await userEvent.click(screen.getByLabelText(/^password$/i));
     await userEvent.paste("😀".repeat(4));
 
     await waitFor(() => {
@@ -297,7 +310,7 @@ describe("UsersCard", () => {
     await userEvent.type(screen.getByLabelText(/username/i), "analyst");
     // 25 four-byte emoji = 100 bytes, but only 25 JS characters. A naive
     // `password.length <= 72` check would wrongly allow this.
-    await userEvent.type(screen.getByLabelText(/password/i), "😀".repeat(25));
+    await userEvent.type(screen.getByLabelText(/^password$/i), "😀".repeat(25));
 
     await waitFor(() => {
       expect(screen.getByText(/limited to 72 bytes/i)).toBeTruthy();
@@ -337,7 +350,135 @@ describe("UsersCard", () => {
 
     // A failed delete disarms, so a second stray click can't re-fire it.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /^delete rob@rob$/i })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: /^delete rob@rob$/i }),
+      ).toBeTruthy();
+    });
+  });
+
+  describe("reset password", () => {
+    async function openReset(username: string) {
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: new RegExp(`^reset password for ${username}$`, "i"),
+        }),
+      );
+      return screen.getByLabelText(
+        new RegExp(`new password for ${username}`, "i"),
+      );
+    }
+
+    function saveButton(username: string) {
+      return screen.getByRole("button", {
+        name: new RegExp(`save password for ${username}`, "i"),
+      }) as HTMLButtonElement;
+    }
+
+    it("is offered for standard users only", async () => {
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      expect(
+        screen.queryByRole("button", {
+          name: /reset password for acting-admin/i,
+        }),
+      ).toBeNull();
+      expect(
+        screen.getByRole("button", { name: /^reset password for rob@rob$/i }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: /^reset password for freshling$/i }),
+      ).toBeTruthy();
+    });
+
+    it("PATCHes the new password and closes the field", async () => {
+      patchSpy.mockResolvedValueOnce(undefined);
+
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      const input = await openReset("rob@rob");
+      await userEvent.type(input, "fresh-password");
+      await userEvent.click(saveButton("rob@rob"));
+
+      await waitFor(() => {
+        expect(patchSpy).toHaveBeenCalledWith("/api/users/user-2/password", {
+          password: "fresh-password",
+        });
+      });
+      await waitFor(() => {
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Password reset for rob@rob" }),
+        );
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/new password for rob@rob/i)).toBeNull();
+      });
+    });
+
+    it("keeps save disabled until the password is 8+ characters", async () => {
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      const input = await openReset("rob@rob");
+      expect(saveButton("rob@rob").disabled).toBe(true);
+
+      await userEvent.type(input, "short");
+      expect(saveButton("rob@rob").disabled).toBe(true);
+
+      await userEvent.type(input, "enough");
+      await waitFor(() => {
+        expect(saveButton("rob@rob").disabled).toBe(false);
+      });
+    });
+
+    it("blocks a password over bcrypt's 72-byte ceiling", async () => {
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      const input = await openReset("rob@rob");
+      await userEvent.click(input);
+      await userEvent.paste("😀".repeat(19)); // 76 bytes, 19 characters
+
+      await waitFor(() => {
+        expect(screen.getByText(/limited to 72 bytes/i)).toBeTruthy();
+      });
+      expect(saveButton("rob@rob").disabled).toBe(true);
+      expect(patchSpy).not.toHaveBeenCalled();
+    });
+
+    it("cancels without sending anything", async () => {
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      const input = await openReset("rob@rob");
+      await userEvent.type(input, "fresh-password");
+      await userEvent.click(
+        screen.getByRole("button", { name: /cancel resetting rob@rob/i }),
+      );
+
+      expect(patchSpy).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText(/new password for rob@rob/i)).toBeNull();
+    });
+
+    it("surfaces the backend detail when the reset fails", async () => {
+      patchSpy.mockRejectedValueOnce(new ApiError(404, "User not found."));
+
+      renderCard();
+      await screen.findByText("rob@rob");
+
+      const input = await openReset("rob@rob");
+      await userEvent.type(input, "fresh-password");
+      await userEvent.click(saveButton("rob@rob"));
+
+      await waitFor(() => {
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            variant: "destructive",
+            description: "User not found.",
+          }),
+        );
+      });
     });
   });
 });
