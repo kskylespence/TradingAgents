@@ -26,6 +26,18 @@ for the per-deploy cut workflow.
   `ADMIN_PASSWORD_HASH` on every boot, and so is every other admin, so one
   admin cannot take over another's account. A reset does not end sessions the
   user already holds, because the JWT is stateless.
+  The reset password is **temporary**: the admin knows it, so the user must
+  choose their own at next sign-in. The reset sets the new
+  `users.must_change_password` column, login carries it in the JWT (`pwc`),
+  and while it is set every route answers `403 password_change_required`
+  except `/api/auth/me`, `/api/auth/logout` and the new
+  `POST /api/auth/change-password` (current + new password, CSRF-protected,
+  reissues both cookies). The guard sits in `get_current_user`, so a new route
+  is blocked by default. Wrong current passwords share the login rate limit.
+  Sessions opened before the reset stay valid and unflagged until they
+  expire. **Deploy step:** migration `0004` adds the column. The image's
+  entrypoint runs `alembic upgrade head` on boot; confirm it applied (the
+  app fails on login without the column).
 
 ### Changed
 

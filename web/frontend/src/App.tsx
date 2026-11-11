@@ -11,6 +11,7 @@ import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { cn } from "@/lib/utils";
 
 const Login = lazy(() => import("@/routes/Login"));
+const ChangePassword = lazy(() => import("@/routes/ChangePassword"));
 const NewRun = lazy(() => import("@/routes/NewRun"));
 const RunView = lazy(() => import("@/routes/RunView"));
 const History = lazy(() => import("@/routes/History"));
@@ -109,6 +110,14 @@ function AppRoutes() {
     >
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/change-password"
+          element={
+            <ProtectedRoute>
+              <ChangePassword />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/new"
           element={

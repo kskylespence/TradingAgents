@@ -53,14 +53,26 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(*, user_id: UUID, username: str, role: str) -> str:
-    """Mint a JWT for the given user."""
+# 403 detail for a session whose password is temporary. The SPA matches it.
+PASSWORD_CHANGE_REQUIRED = "password_change_required"
+
+
+def create_access_token(
+    *, user_id: UUID, username: str, role: str, must_change_password: bool = False
+) -> str:
+    """Mint a JWT for the given user.
+
+    ``pwc`` ("password change") is true when the account's password is a
+    temporary one set by an admin; ``get_current_user`` then refuses the
+    session everywhere except the routes that let the user change it.
+    """
     settings = get_settings()
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": str(user_id),
         "username": username,
         "role": role,
+        "pwc": bool(must_change_password),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=settings.jwt_ttl_seconds)).timestamp()),
     }
@@ -84,8 +96,13 @@ def decode_access_token(token: str) -> dict[str, Any]:
         ) from e
 
 
-async def get_current_user(request: Request) -> AuthUser:
-    """FastAPI dependency: extract + validate the JWT cookie."""
+async def get_current_user_allow_password_change(request: Request) -> AuthUser:
+    """FastAPI dependency: extract + validate the JWT cookie.
+
+    Does NOT refuse a session with a temporary password. Only ``/auth/me``,
+    ``/auth/logout`` and ``/auth/change-password`` may use it directly;
+    everything else goes through ``get_current_user``.
+    """
     token = request.cookies.get(COOKIE_ACCESS_TOKEN)
     if not token:
         raise HTTPException(
@@ -111,6 +128,14 @@ async def get_current_user(request: Request) -> AuthUser:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token role",
         )
+    # Tokens issued before the claim existed have no "pwc": read as False.
+    # Any present value that is not a bool is an invalid token (fail closed).
+    pwc = payload.get("pwc", False)
+    if not isinstance(pwc, bool):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims",
+        )
     try:
         user_id = UUID(sub)
     except ValueError as e:
@@ -118,7 +143,23 @@ async def get_current_user(request: Request) -> AuthUser:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token subject",
         ) from e
-    return AuthUser(id=user_id, username=username, role=role)
+    return AuthUser(id=user_id, username=username, role=role, must_change_password=pwc)
+
+
+async def get_current_user(
+    user: AuthUser = Depends(get_current_user_allow_password_change),
+) -> AuthUser:
+    """FastAPI dependency: a signed-in user whose password is not temporary.
+
+    Every route depends on this (directly or via ``require_admin``), so a
+    session with a temporary password is refused everywhere by default.
+    """
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PASSWORD_CHANGE_REQUIRED,
+        )
+    return user
 
 
 async def require_admin(user: AuthUser = Depends(get_current_user)) -> AuthUser:
@@ -135,10 +176,12 @@ __all__ = [
     "COOKIE_ACCESS_TOKEN",
     "COOKIE_CSRF_TOKEN",
     "JWT_ALGORITHM",
+    "PASSWORD_CHANGE_REQUIRED",
     "hash_password",
     "verify_password",
     "create_access_token",
     "decode_access_token",
     "get_current_user",
+    "get_current_user_allow_password_change",
     "require_admin",
 ]

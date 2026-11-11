@@ -25,12 +25,16 @@ async def upsert_admin_user(session: AsyncSession) -> User:
             username=settings.admin_username,
             password_hash=settings.admin_password_hash,
             role="admin",
+            must_change_password=False,
         )
         session.add(row)
     else:
         row.username = settings.admin_username
         row.password_hash = settings.admin_password_hash
         row.role = "admin"
+        # Its password comes from env, never from a reset, so it is never
+        # temporary.
+        row.must_change_password = False
     await session.commit()
     return row
 

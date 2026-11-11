@@ -136,6 +136,7 @@ async def create_user(
         username=username,
         password_hash=hash_password(body.password),
         role="user",  # hardcoded — never taken from the request body
+        must_change_password=False,
     )
     db.add(user)
 
@@ -261,7 +262,9 @@ async def reset_password(
     """Set a new password for an account, e.g. when its owner is locked out.
 
     Passwords are stored only as bcrypt hashes, so an admin can replace a
-    password but never read one back.
+    password but never read one back. The new password is temporary: it sets
+    ``must_change_password``, so the user's next login must go through
+    ``POST /api/auth/change-password`` before any other route answers.
 
     The JWT is stateless: a reset does not end a session the user already
     holds. See the revocation note in ``web/docs/api.md``.
@@ -294,6 +297,9 @@ async def reset_password(
         )
 
     user.password_hash = hash_password(body.password)
+    # The admin now knows this password, so it is temporary: the user must
+    # choose their own at next login (enforced in app.auth.get_current_user).
+    user.must_change_password = True
     await db.commit()
 
     log.info("users.password_reset", extra={"username": user.username})

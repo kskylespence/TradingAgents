@@ -28,6 +28,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
@@ -55,6 +56,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    # Set by an admin password reset (migration 0004): the password is
+    # temporary, and the user must choose a new one before using the app.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
 
 

@@ -68,7 +68,7 @@ vi.mock("@/lib/api", async () => {
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({ user: { id: "u-1", username: "someone", role: "user" } }),
+  useAuth: () => ({ user: { id: "u-1", username: "someone", role: "user", must_change_password: false } }),
 }));
 
 import Settings from "@/routes/Settings";

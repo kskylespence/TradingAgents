@@ -112,6 +112,9 @@ class AuthUser(_FrontendModel):
     id: UUID
     username: str
     role: Literal["admin", "user"]
+    # True after an admin reset: every route except /auth/me, /auth/logout
+    # and /auth/change-password answers 403 "password_change_required".
+    must_change_password: bool = False
 
 
 class LoginRequest(_FrontendModel):
@@ -189,6 +192,24 @@ class ResetPasswordRequest(_FrontendModel):
     password: str = Field(min_length=8)
 
     @field_validator("password")
+    @classmethod
+    def _password_fits_bcrypt(cls, v: str) -> str:
+        return _check_password_bytes(v)
+
+
+class ChangePasswordRequest(_FrontendModel):
+    """Body for ``POST /api/auth/change-password``.
+
+    ``new_password`` follows the same rules as ``ResetPasswordRequest``: at
+    least 8 characters and at most 72 bytes UTF-8 encoded.
+    ``current_password`` is not length-checked: a wrong one is a 400 from
+    the route, not a 422.
+    """
+
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+    @field_validator("new_password")
     @classmethod
     def _password_fits_bcrypt(cls, v: str) -> str:
         return _check_password_bytes(v)
@@ -587,6 +608,7 @@ __all__ = [
     "CatalogLanguage",
     # Auth
     "AuthUser",
+    "ChangePasswordRequest",
     "LoginRequest",
     # Settings
     "ApiKeyStatus",

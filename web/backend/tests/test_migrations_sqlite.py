@@ -60,3 +60,55 @@ def test_upgrade_head_and_downgrade_base_on_sqlite(tmp_path):
 
     down = _alembic(db, "downgrade", "base")
     assert down.returncode == 0, down.stderr[-2000:]
+
+
+@pytest.mark.unit
+def test_0004_adds_must_change_password_and_downgrades(tmp_path):
+    """0004 adds ``users.must_change_password`` NOT NULL, default false,
+    fills existing rows with false, and 0004 → 0003 drops it again."""
+    db = tmp_path / "pwc.db"
+
+    up = _alembic(db, "upgrade", "0003")
+    assert up.returncode == 0, up.stderr[-2000:]
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, role) "
+            "VALUES ('00000000-0000-0000-0000-000000000002', 'rob', 'x', 'user')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    up = _alembic(db, "upgrade", "head")
+    assert up.returncode == 0, up.stderr[-2000:]
+    conn = sqlite3.connect(db)
+    try:
+        cols = {r[1]: r for r in conn.execute("PRAGMA table_info(users)")}
+        assert "must_change_password" in cols
+        col = cols["must_change_password"]
+        assert col[3] == 1, "must_change_password must be NOT NULL"
+        assert col[4] is not None and col[4].strip("'\"").lower() in {"0", "false"}
+        rows = conn.execute("SELECT username, must_change_password FROM users ORDER BY username").fetchall()
+        assert rows == [("bootstrap-admin", 0), ("rob", 0)]
+        # A new row without the column gets the server default.
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, role) "
+            "VALUES ('00000000-0000-0000-0000-000000000003', 'new', 'x', 'user')"
+        )
+        assert conn.execute(
+            "SELECT must_change_password FROM users WHERE username='new'"
+        ).fetchone() == (0,)
+        conn.commit()
+    finally:
+        conn.close()
+
+    down = _alembic(db, "downgrade", "0003")
+    assert down.returncode == 0, down.stderr[-2000:]
+    conn = sqlite3.connect(db)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        assert "must_change_password" not in cols
+        assert conn.execute("SELECT count(*) FROM users").fetchone() == (3,)
+    finally:
+        conn.close()

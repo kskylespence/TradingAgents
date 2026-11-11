@@ -86,7 +86,8 @@ reproduce the 404s that motivated this whole change.
 
 Cookie-based, multi-user. Both cookies are set by `POST /api/auth/login`
 and cleared by `POST /api/auth/logout`. The JWT carries `id`, `username`,
-and `role` (`admin` | `user`); `require_admin` gates the admin-only surface
+`role` (`admin` | `user`) and `pwc` (bool: the password is temporary, see
+[Temporary passwords](#temporary-passwords)); `require_admin` gates the admin-only surface
 (`/api/settings/*`, `/api/users/*`). Accounts are managed via
 [User administration](#user-administration).
 
@@ -110,8 +111,49 @@ immediately — same as forcing a global logout. This is the
 "log out everywhere" lever; document it for operators.
 
 `GET /api/auth/me` is the canonical "am I logged in" probe — it returns
-`{username}` on 200 or 401 on missing/expired JWT. The frontend uses it
-on app boot to decide between `/login` and the routed shell.
+`AuthUser` (`{id, username, role, must_change_password}`) on 200 or 401 on
+missing/expired JWT. The frontend uses it on app boot to decide between
+`/login`, `/change-password` and the routed shell.
+
+### Temporary passwords
+
+An admin reset ([below](#user-administration)) sets
+`users.must_change_password` (migration `0004`). Login copies it into the JWT
+as `pwc`. A token without `pwc` (issued before this existed) reads as false;
+a `pwc` that is not a bool is an invalid token (`401`).
+
+While `pwc` is true, **every route answers `403 {"detail":
+"password_change_required"}`** except three: `GET /api/auth/me`,
+`POST /api/auth/logout` and `POST /api/auth/change-password`. This fails
+closed: `get_current_user` (which every route and `require_admin` depend on)
+raises the 403, and only those three routes use
+`get_current_user_allow_password_change`. A new route is blocked by default.
+
+`POST /api/auth/change-password` takes `ChangePasswordRequest`
+(`{current_password, new_password}`) and returns `204`. It needs the JWT
+and the CSRF header like any other POST. `new_password` has the same rules
+as create (8+ characters, at most 72 bytes UTF-8 encoded → `422`, value
+not echoed). On success it stores the new hash, clears the flag and
+**reissues both cookies** the way login does (new JWT with `pwc: false`,
+new CSRF token), so the SPA must re-read the CSRF cookie. Any signed-in
+user may call it, flagged or not.
+
+| Case | Status |
+|---|---|
+| No or invalid JWT, or the account no longer exists | `401` |
+| Caller is the bootstrap admin | `400` — its hash comes from `ADMIN_PASSWORD_HASH` |
+| `current_password` wrong | `400 "Current password is incorrect."` (400, not 401, so the SPA does not treat it as signed out) |
+| `new_password` equals `current_password` | `400 "New password must be different from the current one."` |
+| Rate limit hit | `429` + `Retry-After` |
+
+Wrong current passwords count toward the [login rate limit](#login-rate-limit):
+same per-IP bucket, same `login_attempts` rows. A lockout is reported as
+`429` here, not the limiter's `401`, because `401` would sign the SPA out.
+
+The flag lives in the token, not in a per-request DB check, so the
+stateless-JWT caveat applies: **a session opened before the reset keeps
+working, unflagged, until it expires**. Only the next login carries
+`pwc: true`. Rotate `JWT_SECRET` to end every session at once.
 
 ## CSRF
 
@@ -229,7 +271,11 @@ surprising and unrecoverable.
 
 **Resetting a password.** `PATCH /api/users/{user_id}/password` takes
 `ResetPasswordRequest` (`{password}`) and returns `204` with no body. It is the
-fix for a locked-out user. Passwords are stored only as bcrypt hashes, so an
+fix for a locked-out user. The new password is **temporary**: the reset sets
+`must_change_password` in the same commit, so at next sign-in the user must
+choose their own via `POST /api/auth/change-password` before any other route
+answers (see [Temporary passwords](#temporary-passwords)). The admin tells
+the user the temporary password themselves; nothing is emailed. Passwords are stored only as bcrypt hashes, so an
 admin can set a new password but can never read the old one back. The new
 password follows the same rules as create (8+ characters, at most 72 bytes),
 and a rejected request leaves the old hash in place.
@@ -243,7 +289,8 @@ and a rejected request leaves the old hash in place.
 
 The UI offers reset only on standard-user rows, the same rows that offer
 delete, and the backend refuses the rest. As with delete, the JWT is stateless, so a reset does **not** end a
-session the user already holds; see the note above.
+session the user already holds, and that older session is not forced to
+change the password either; see the note above.
 
 **Validation errors never echo the value.** Every `422` drops FastAPI's
 `detail[].input` (the rejected value) and keeps `loc` and `msg`. Otherwise a
@@ -502,8 +549,9 @@ are documented under each endpoint in `/api/docs`.
 | Method | Path | Auth | CSRF | Returns |
 |---|---|---|---|---|
 | `POST` | `/api/auth/login` | none | exempt | `204` + sets `access_token`, `csrf_token` cookies |
-| `POST` | `/api/auth/logout` | JWT | required | `204` + clears cookies |
-| `GET` | `/api/auth/me` | JWT | n/a | `AuthUser` |
+| `POST` | `/api/auth/logout` | JWT (temporary password allowed) | required | `204` + clears cookies |
+| `GET` | `/api/auth/me` | JWT (temporary password allowed) | n/a | `AuthUser` |
+| `POST` | `/api/auth/change-password` | JWT (temporary password allowed) | required | `204` + reissues `access_token`, `csrf_token` cookies |
 | `GET` | `/api/catalog/providers` | JWT | n/a | `CatalogProvider[]` |
 | `GET` | `/api/catalog/models?provider=&mode=` | JWT | n/a | `CatalogModel[]` |
 | `GET` | `/api/catalog/analysts?asset_type=` | JWT | n/a | `CatalogAnalyst[]` |
@@ -523,7 +571,7 @@ are documented under each endpoint in `/api/docs`.
 | `GET` | `/api/users` | JWT (**admin**) | n/a | `UserSummary[]` (never a hash) |
 | `POST` | `/api/users` | JWT (**admin**) | required | `201` + `UserSummary` |
 | `DELETE` | `/api/users/{user_id}` | JWT (**admin**) | required | `204` |
-| `PATCH` | `/api/users/{user_id}/password` | JWT (**admin**) | required | `204` |
+| `PATCH` | `/api/users/{user_id}/password` | JWT (**admin**) | required | `204`; the password is temporary (`must_change_password`) |
 | `GET` | `/api/health` | none | n/a | `HealthResponse` (`{status, version, db, disk_free_mb, active_run_id, ollama?}`), always HTTP 200 |
 | `GET` | `/api/announcements/` | JWT | n/a | `Announcement[]` (cached proxy) |
 

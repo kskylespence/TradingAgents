@@ -237,8 +237,9 @@ function ResetPasswordForm({
         </p>
       ) : null}
       <p className="text-sm text-muted-foreground">
-        Tell {user.username} the new password yourself. Sessions they are
-        already signed into stay open.
+        This is a temporary password. Tell {user.username} yourself; they must
+        choose a new one at their next sign-in. Sessions they are already
+        signed into stay open.
       </p>
     </form>
   );

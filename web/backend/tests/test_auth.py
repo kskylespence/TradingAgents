@@ -278,6 +278,7 @@ def test_login_then_me_round_trip(client: TestClient) -> None:
         "id": "00000000-0000-0000-0000-000000000001",
         "username": "test-admin",
         "role": "admin",
+        "must_change_password": False,
     }
 
 

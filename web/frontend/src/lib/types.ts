@@ -78,6 +78,10 @@ export interface AuthUser {
   id: string;
   username: string;
   role: "admin" | "user";
+  /** True while the account holds an admin-set temporary password. The API
+   *  answers 403 `password_change_required` to everything but
+   *  /api/auth/{me,logout,change-password} until it is changed. */
+  must_change_password: boolean;
 }
 
 export interface LoginRequest {
@@ -119,6 +123,16 @@ export interface CreateUserRequest {
  */
 export interface ResetPasswordRequest {
   password: string;
+}
+
+/**
+ * Body for POST /api/auth/change-password. Mirrors
+ * `app/schemas.py:ChangePasswordRequest`; `new_password` follows the same
+ * rules as `ResetPasswordRequest` (8+ characters, at most 72 bytes).
+ */
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
 }
 
 // ----- Settings -----

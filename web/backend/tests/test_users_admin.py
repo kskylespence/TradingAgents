@@ -506,6 +506,8 @@ async def test_reset_password_replaces_the_stored_hash(client, session_factory) 
         assert row.password_hash != "x" * 60
         assert verify_password("brand-new-pass", row.password_hash)
         assert not verify_password("wrong-password", row.password_hash)
+        # The admin knows it, so it is temporary.
+        assert row.must_change_password is True
         # Nothing else about the account changes.
         assert row.username == "rob@rob"
         assert row.role == "user"

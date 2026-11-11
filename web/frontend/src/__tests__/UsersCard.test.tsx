@@ -53,7 +53,7 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { id: "admin-1", username: "acting-admin", role: "admin" },
+    user: { id: "admin-1", username: "acting-admin", role: "admin", must_change_password: false },
   }),
 }));
 
