@@ -16,6 +16,18 @@ for the per-deploy cut workflow.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+### Security
+
+## [0.7.1+hf.2] — 2026-11-11
+
+### Added
+
 - **Admins can reset a user's password.** A locked-out user had no way back
   in: passwords are stored only as bcrypt hashes, so nobody can read one, and
   the Users card could only create and delete accounts. Delete-and-recreate
@@ -39,8 +51,6 @@ for the per-deploy cut workflow.
   entrypoint runs `alembic upgrade head` on boot; confirm it applied (the
   app fails on login without the column).
 
-### Changed
-
 ### Fixed
 
 - **The pre-push hook now runs.** `core.fileMode` is false in this clone, so
@@ -49,8 +59,6 @@ for the per-deploy cut workflow.
   0.7.1+hf.1 push. That release had passed the full local run before it was
   cut; only the hook was skipped. The executable bit is now set in the index,
   which also fixes it for any new clone.
-
-### Removed
 
 ### Security
 
@@ -1215,7 +1223,8 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.1...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.2...HEAD
+[0.7.1+hf.2]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.1...v0.7.1-hf.2
 [0.7.1+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...v0.7.1-hf.1
 [0.6.0+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...v0.6.0-hf.1
 [0.3.1+hf.5]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.4...v0.3.1-hf.5
