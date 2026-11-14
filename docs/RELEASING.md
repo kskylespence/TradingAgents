@@ -21,6 +21,7 @@ the version installable by pip but unpublishable to PyPI by design
 | 0.6.0+hf.1                   | v0.6.0-hf.1   | TauricResearch v0.6.0          |
 | 0.7.1+hf.1                   | v0.7.1-hf.1   | TauricResearch v0.7.1          |
 | 0.7.1+hf.2                   | v0.7.1-hf.2   | TauricResearch v0.7.1          |
+| 0.7.1+hf.3                   | v0.7.1-hf.3   | TauricResearch v0.7.1          |
 
 Note the asymmetry: the **version string** uses `+` (PEP 440 local
 segment delimiter), the **git tag** uses `-` (`+` is not a legal git

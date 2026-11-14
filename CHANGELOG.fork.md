@@ -18,6 +18,16 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+### Security
+
+## [0.7.1+hf.3] — 2026-11-14
+
+### Changed
+
 - **Pre-run model check waits as long as the run would** instead of
   giving each model two 15-second tries. It now uses the run's own read
   timeout for that model (120 seconds by default, longer for the slow
@@ -57,10 +67,6 @@ for the per-deploy cut workflow.
   429 or counts it against the shared circuit breaker: three refused
   submits used to open the breaker, and the page then went back to
   "not responding, try these models".
-
-### Removed
-
-### Security
 
 ## [0.7.1+hf.2] — 2026-11-11
 
@@ -1261,7 +1267,8 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.2...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.3...HEAD
+[0.7.1+hf.3]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.2...v0.7.1-hf.3
 [0.7.1+hf.2]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.1...v0.7.1-hf.2
 [0.7.1+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...v0.7.1-hf.1
 [0.6.0+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.3.1-hf.5...v0.6.0-hf.1
