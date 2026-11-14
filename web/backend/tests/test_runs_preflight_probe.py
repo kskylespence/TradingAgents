@@ -3,7 +3,7 @@
 A real run on 2026-05-22 hung for 56 minutes because ``POST /api/runs``
 enqueued the engine on a model (``kimi-k2-thinking``) that was
 unresponsive on Ollama Cloud — no defense checked model liveness before
-launching. This layer adds a synchronous pre-flight probe (~15s budget)
+launching. This layer adds a synchronous pre-flight probe (one try, 45s read)
 that pings each selected model and returns a structured 400 with healthy
 alternatives when a model is dead.
 
@@ -18,7 +18,9 @@ The probe contract:
   to give the model budget to emit a non-empty response. Non-reasoning
   models get ``max_completion_tokens=1`` for the cheapest possible
   probe.
-* Times out at ``httpx.Timeout(connect=5, read=15, write=5, pool=5)``.
+* One try per model with a 45s read budget (``_PROBE_TIMEOUT``); a read
+  timeout is not retried. Quick and deep probe at the same time.
+* A 429 (Ollama Cloud's account usage limit) reports ``rate_limited``.
 * Caches healthy results for 60s and unhealthy results for 30s (keyed
   by ``(base_url, model_id)``) so the catalog tab refreshing every
   ~30s and the dual-model select on NewRun (quick+deep) don't multiply
@@ -148,7 +150,13 @@ def _install_probe_fake(
             except Exception:
                 body = {}
             model_id = body.get("model")
-            record["probe_calls"].append({"model": model_id, "payload": body})
+            record["probe_calls"].append(
+                {
+                    "model": model_id,
+                    "payload": body,
+                    "timeout": request.extensions.get("timeout"),
+                }
+            )
             spec = responses.get(model_id)
             return _build_probe_response(spec, model_id, request)
         return httpx.Response(
@@ -257,6 +265,220 @@ def test_probe_timeout_returns_400(runs_client, monkeypatch) -> None:
     statuses = {m["status"] for m in detail["unhealthy_models"]}
     assert statuses == {"timeout"}, statuses
     assert calls == [], "start_run must NOT be called when probe fails"
+
+
+def test_probe_timeout_is_one_long_try_not_two_short_ones(
+    runs_client, monkeypatch
+) -> None:
+    """A model gets ONE probe try with a 45s read budget, not 2 x 15s.
+
+    Two 15s tries refused glm-5.3-flash for a standard user on
+    2026-11-14 while the run path itself waits up to 120s per call. A
+    single long try lets an alive-but-slow model through; a hung one is
+    still refused (see test_probe_timeout_returns_400) so it cannot pin
+    the single run slot.
+    """
+    client, _calls = runs_client
+    record = _install_probe_fake(
+        monkeypatch,
+        responses={
+            "glm-5": {"raise": httpx.ReadTimeout("read timeout")},
+            "kimi-k2.6": None,
+        },
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    resp = _post(client, _build_body())
+
+    assert resp.status_code == 400, resp.text
+    glm_calls = [c for c in record["probe_calls"] if c["model"] == "glm-5"]
+    assert len(glm_calls) == 1, f"timeout must not be retried, got {len(glm_calls)}"
+    for call in record["probe_calls"]:
+        assert call["timeout"]["read"] == 45.0, call["timeout"]
+
+
+def test_probe_429_usage_limit_reports_rate_limited(runs_client, monkeypatch) -> None:
+    """Ollama's 429 'session usage limit' must read as a usage limit.
+
+    On 2026-11-14 every probe returned 429 because the account hit its
+    usage limit; the UI called it 'returned 4xx', which points no one
+    at the fix (add credits or wait for the reset).
+    """
+    from app.services import upstream_http
+
+    async def _no_sleep(_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(upstream_http, "_async_sleep", _no_sleep)
+    client, calls = runs_client
+    _install_probe_fake(
+        monkeypatch,
+        responses={
+            "glm-5": {
+                "status": 429,
+                "payload": {
+                    "error": {
+                        "message": "you (someone) have reached your session usage limit",
+                        "type": "api_error",
+                    }
+                },
+            },
+            "kimi-k2.6": None,
+        },
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    resp = _post(client, _build_body())
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    unhealthy = {m["model"]: m for m in detail["unhealthy_models"]}
+    assert unhealthy["glm-5"]["status"] == "rate_limited"
+    assert "usage limit" in detail["message"].lower()
+    assert calls == []
+
+
+def test_probe_429_is_final_and_spares_the_circuit_breaker(
+    runs_client, monkeypatch
+) -> None:
+    """A usage-limit 429 is not retried and does not trip the breaker.
+
+    The breaker is shared with the catalog and health checks. Counting
+    each 429 as a failure meant three submits opened it, after which
+    probes reported ``timeout`` and the UI offered other models again,
+    which is wrong when the whole account is limited.
+    """
+    from app.services import upstream_http
+
+    client, _calls = runs_client
+    record = _install_probe_fake(
+        monkeypatch,
+        responses={
+            "glm-5": {"status": 429, "payload": {"error": "usage limit"}},
+            "kimi-k2.6": None,
+        },
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    resp = _post(client, _build_body())
+
+    assert resp.status_code == 400, resp.text
+    glm_calls = [c for c in record["probe_calls"] if c["model"] == "glm-5"]
+    assert len(glm_calls) == 1, f"429 must not be retried, got {len(glm_calls)}"
+    assert upstream_http._breaker.failure_count == 0
+
+
+def test_usage_limit_message_names_only_the_limited_models(
+    runs_client, monkeypatch
+) -> None:
+    """Mixed failures: the usage-limit sentence blames only 429 models."""
+    client, _calls = runs_client
+    _install_probe_fake(
+        monkeypatch,
+        responses={
+            "glm-5": {"status": 429, "payload": {"error": "usage limit"}},
+            "kimi-k2.6": {"status": 500, "payload": {"error": "boom"}},
+        },
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    resp = _post(client, _build_body())
+
+    detail = resp.json()["detail"]
+    assert "glm-5" in detail["message"]
+    assert "kimi-k2.6" not in detail["message"]
+
+
+def test_probe_has_a_hard_wall_clock_cap(runs_client, monkeypatch) -> None:
+    """The whole probe, retries included, stops at the hard cap.
+
+    Tenacity only checks its time budget between tries, so a slow 5xx
+    followed by a retry could run ~90s while the UI says "up to a
+    minute". Scaled down here: cap 0.3s, each try answers 503 after
+    0.25s, so without a hard cap the retry runs past 0.5s.
+    """
+    import asyncio
+    import time
+
+    from app.services import ollama_models, upstream_http
+
+    client, _calls = runs_client
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(
+                200, json={"object": "list", "data": [{"id": "glm-5"}]}, request=request
+            )
+        await asyncio.sleep(0.25)
+        return httpx.Response(503, json={"error": "busy"}, request=request)
+
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler), timeout=httpx.Timeout(5.0)
+    )
+    monkeypatch.setattr(ollama_models, "_PROBE_HARD_CAP_SECONDS", 0.3)
+
+    started = time.monotonic()
+    resp = _post(client, _build_body(quick_think_llm="glm-5", deep_think_llm="glm-5"))
+    elapsed = time.monotonic() - started
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["unhealthy_models"][0]["status"] == "timeout"
+    assert elapsed < 0.5, f"probe ran {elapsed:.2f}s past its 0.3s cap"
+
+
+def test_probes_for_quick_and_deep_run_at_the_same_time(
+    runs_client, monkeypatch
+) -> None:
+    """Different models are probed concurrently, not one after another.
+
+    A single global probe lock made the two probes queue, so a slow
+    model doubled the time the submit button spun.
+    """
+    import asyncio
+    import json as _json
+
+    from app.services import ollama_models, upstream_http
+
+    client, calls = runs_client
+    state = {"in_flight": 0, "max_in_flight": 0}
+
+    async def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(
+                200,
+                json={"object": "list", "data": [{"id": "glm-5"}, {"id": "kimi-k2.6"}]},
+                request=request,
+            )
+        model_id = _json.loads(request.content)["model"]
+        state["in_flight"] += 1
+        state["max_in_flight"] = max(state["max_in_flight"], state["in_flight"])
+        await asyncio.sleep(0.2)
+        state["in_flight"] -= 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "pong"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "model": model_id,
+            },
+            request=request,
+        )
+
+    ollama_models._reset_for_tests()
+    upstream_http._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(_handler), timeout=httpx.Timeout(5.0)
+    )
+
+    resp = _post(client, _build_body())
+
+    assert resp.status_code == 200, resp.text
+    assert state["max_in_flight"] == 2, state
+    assert len(calls) == 1
 
 
 def test_probe_5xx_extracts_upstream_ref(runs_client, monkeypatch) -> None:

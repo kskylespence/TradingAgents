@@ -538,19 +538,24 @@ export default function NewRun() {
               </FormControl>
             </FormItem>
 
-            {isAdmin ? (
-              <>
             {/* Ollama upstream warning — see OllamaUpstreamAlert for
-                the visibility logic. Extracted so the alert can be
-                unit-tested without mounting the full form. Renders
-                two modes: steady-state health-probe failures (background
-                /api/health poll) AND submit-time pre-flight model
-                probe failures (RunValidationError from POST /api/runs). */}
+                the visibility logic. Renders two modes: steady-state
+                health-probe failures (background /api/health poll) AND
+                submit-time pre-flight model probe failures
+                (RunValidationError from POST /api/runs). It MUST stay
+                outside the admin-only block: the 400 branch of onError
+                shows no toast, so for a standard user this alert is the
+                only sign a run was refused. Standard users always run
+                on the server's Ollama defaults, hence provider="ollama". */}
             <OllamaUpstreamAlert
-              provider={provider}
+              audience={isAdmin ? "admin" : "user"}
+              provider={isAdmin ? provider : "ollama"}
               health={healthQuery.data?.ollama ?? null}
               validation={probeValidation}
             />
+
+            {isAdmin ? (
+              <>
 
             {/* 5. LLM provider */}
             <FormItem>
@@ -742,6 +747,12 @@ export default function NewRun() {
             ) : null}
 
             <FormMessage>{validationError}</FormMessage>
+            {isSubmitting ? (
+              <p role="status" className="text-sm text-muted-foreground">
+                Checking that the AI models are answering. This can take up
+                to a minute.
+              </p>
+            ) : null}
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Button

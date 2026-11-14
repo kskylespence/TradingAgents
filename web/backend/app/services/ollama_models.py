@@ -88,8 +88,26 @@ _HYSTERESIS_WINDOW = 3
 _HYSTERESIS_FAILURE_THRESHOLD = 2
 
 ProbeOutcome = Literal[
-    "ok", "timeout", "http_5xx", "http_4xx", "degraded_empty_response"
+    "ok",
+    "timeout",
+    "http_5xx",
+    "http_4xx",
+    "rate_limited",
+    "degraded_empty_response",
 ]
+
+# One probe try gets this long to answer. The run path waits up to 120s
+# per call, so the old 2 x 15s tries refused models that were slow but
+# alive (a standard user was blocked this way on 2026-11-14). 45s still
+# refuses a hung model, which would otherwise pin the single run slot.
+_PROBE_READ_TIMEOUT_SECONDS = 45.0
+_PROBE_TIMEOUT = httpx.Timeout(
+    connect=10.0, read=_PROBE_READ_TIMEOUT_SECONDS, write=10.0, pool=10.0
+)
+# Wall-clock cap on the whole probe, retries and Retry-After sleeps
+# included. Tenacity checks its own time budget only BETWEEN tries, so
+# without this a slow 5xx plus its retry could run ~90s.
+_PROBE_HARD_CAP_SECONDS = _PROBE_READ_TIMEOUT_SECONDS + 5.0
 
 
 class ProbeResult(dict):
@@ -111,7 +129,11 @@ class ProbeResult(dict):
 
 # (base_url, model_id) -> (cached_at_monotonic, ProbeResult)
 _probe_cache: dict[tuple[str, str], tuple[float, ProbeResult]] = {}
-_probe_lock: asyncio.Lock | None = None
+# One lock per (base_url, model_id), so quick and deep probe at the same
+# time while two submits of the same model still share one upstream call.
+# The dict is created lazily (see ``_get_probe_lock``) for the same
+# loop-binding reason as ``_lock``.
+_probe_locks: dict[tuple[str, str], asyncio.Lock] | None = None
 
 # Compiled once at module load; recognises Ollama's standard upstream
 # error reference format ``(ref: <uuid-ish>)``. Used to extract the
@@ -491,9 +513,9 @@ def _reset_for_tests() -> None:
     breaker) so breaker state from a previous test doesn't bleed into
     the next one.
     """
-    global _lock, _probe_lock, _draining
+    global _lock, _probe_locks, _draining
     _lock = None
-    _probe_lock = None
+    _probe_locks = None
     # Defensive: a test that dies mid-drain would otherwise leave the guard
     # raised and silently suppress every refresh in the tests that follow.
     _draining = False
@@ -516,12 +538,16 @@ def _reset_for_tests() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _get_probe_lock() -> asyncio.Lock:
-    """Lazy probe lock — same loop-binding rationale as ``_get_lock``."""
-    global _probe_lock
-    if _probe_lock is None:
-        _probe_lock = asyncio.Lock()
-    return _probe_lock
+def _get_probe_lock(key: tuple[str, str]) -> asyncio.Lock:
+    """Lazy per-model probe lock — same loop-binding rationale as ``_get_lock``."""
+    global _probe_locks
+    if _probe_locks is None:
+        _probe_locks = {}
+    lock = _probe_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _probe_locks[key] = lock
+    return lock
 
 
 def _probe_payload(model_id: str) -> dict:
@@ -653,7 +679,7 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
         if (now - cached_at) < ttl:
             return prior
 
-    async with _get_probe_lock():
+    async with _get_probe_lock(cache_key):
         # Re-check inside the lock — a concurrent probe may have just
         # populated the entry while we were waiting.
         cached = _probe_cache.get(cache_key)
@@ -672,15 +698,22 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
         upstream_ref: str | None = None
 
         try:
-            resp = await upstream_http.request(
-                "POST",
-                url,
-                headers=headers,
-                json_body=body,
-                # Probe is already cached; one retry is enough — full 3-budget
-                # would amplify upstream load during a flap.
-                max_attempts=2,
-                max_total_seconds=20.0,
+            resp = await asyncio.wait_for(
+                upstream_http.request(
+                    "POST",
+                    url,
+                    headers=headers,
+                    json_body=body,
+                    # One retry for a fast 5xx flap. A read timeout is NOT
+                    # retried (the single try already waits
+                    # _PROBE_TIMEOUT.read) and a 429 comes straight back.
+                    max_attempts=2,
+                    max_total_seconds=_PROBE_HARD_CAP_SECONDS,
+                    timeout=_PROBE_TIMEOUT,
+                    retry_read_timeout=False,
+                    final_statuses=frozenset({429}),
+                ),
+                timeout=_PROBE_HARD_CAP_SECONDS,
             )
             status_code = resp.status_code
             try:
@@ -693,6 +726,10 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
             # RetryableStatusError — handled below.
             if status_code >= 500:
                 outcome = "http_5xx"
+                text = getattr(resp, "text", None)
+                upstream_ref = _extract_upstream_ref(payload, text)
+            elif status_code == 429:
+                outcome = "rate_limited"
                 text = getattr(resp, "text", None)
                 upstream_ref = _extract_upstream_ref(payload, text)
             elif status_code >= 400:
@@ -714,9 +751,13 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
             if resp.status_code >= 500:
                 outcome = "http_5xx"
                 upstream_ref = _extract_upstream_ref(payload, text)
+            elif resp.status_code == 429:
+                # Ollama Cloud answers 429 when the account hits its usage
+                # limit. That needs credits or a wait, not another model,
+                # so it gets its own outcome and its own UI message.
+                outcome = "rate_limited"
+                upstream_ref = _extract_upstream_ref(payload, text)
             else:
-                # 429 lands here — treat as http_4xx for the probe outcome
-                # since the user's UI flow doesn't distinguish them.
                 outcome = "http_4xx"
                 upstream_ref = _extract_upstream_ref(payload, text)
         except CircuitBreakerError as exc:
@@ -727,7 +768,8 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
                 extra={"url": url, "model": model_id, "error": repr(exc)},
             )
             outcome = "timeout"
-        except (httpx.TimeoutException, httpx.ReadTimeout):
+        except (httpx.TimeoutException, httpx.ReadTimeout, TimeoutError):
+            # TimeoutError is the _PROBE_HARD_CAP_SECONDS wall-clock cap.
             outcome = "timeout"
         except Exception as exc:  # noqa: BLE001 — never raise
             # Treat unrecognised transport errors as timeouts for UX

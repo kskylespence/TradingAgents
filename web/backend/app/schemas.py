@@ -541,7 +541,11 @@ class UnhealthyModel(_FrontendModel):
 
     model: str
     status: Literal[
-        "timeout", "http_5xx", "http_4xx", "degraded_empty_response"
+        "timeout",
+        "http_5xx",
+        "http_4xx",
+        "rate_limited",
+        "degraded_empty_response",
     ]
     upstream_ref: str | None = None
 

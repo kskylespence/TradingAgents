@@ -148,3 +148,86 @@ describe("OllamaUpstreamAlert (validation prop)", () => {
     expect(alert.textContent).toMatch(/Ollama upstream is unreachable/i);
   });
 });
+
+describe("OllamaUpstreamAlert (rate_limited status)", () => {
+  it("labels a 429 as the usage limit for an admin", () => {
+    render(
+      <OllamaUpstreamAlert
+        provider="ollama"
+        health={null}
+        validation={_validation({
+          unhealthy_models: [
+            { model: "glm-5.3", status: "rate_limited", upstream_ref: null },
+          ],
+          suggested_alternatives: [],
+        })}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/usage limit/i);
+    expect(alert.textContent).not.toMatch(/returned 4xx/i);
+  });
+});
+
+describe("OllamaUpstreamAlert (audience=user)", () => {
+  // A standard user can't pick a model or touch env vars, so the
+  // admin wording (model ids, alternatives, OLLAMA_BASE_URL) is noise.
+  it("tells a user to try again, without model alternatives", () => {
+    render(
+      <OllamaUpstreamAlert
+        audience="user"
+        provider="ollama"
+        health={null}
+        validation={_validation()}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/not answering/i);
+    expect(alert.textContent).toMatch(/try again/i);
+    expect(alert.textContent).not.toMatch(/kimi-k2\.6/);
+  });
+
+  it("tells a user about the usage limit and to tell an admin", () => {
+    render(
+      <OllamaUpstreamAlert
+        audience="user"
+        provider="ollama"
+        health={null}
+        validation={_validation({
+          unhealthy_models: [
+            { model: "glm-5.3", status: "rate_limited", upstream_ref: null },
+          ],
+        })}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/usage limit/i);
+    expect(alert.textContent).toMatch(/admin/i);
+  });
+
+  it("shows a user the upstream-down notice without env-var advice", () => {
+    render(
+      <OllamaUpstreamAlert
+        audience="user"
+        provider="ollama"
+        health={_health({ status: "down", error: "ConnectError('boom')" })}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/AI service/i);
+    expect(alert.textContent).not.toMatch(/OLLAMA_BASE_URL|ConnectError/);
+  });
+
+  it("shows a user the cool-down notice without provider advice", () => {
+    render(
+      <OllamaUpstreamAlert
+        audience="user"
+        provider="ollama"
+        health={_health({ circuit_state: "open" })}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/try again/i);
+    expect(alert.textContent).not.toMatch(/different provider/i);
+  });
+});

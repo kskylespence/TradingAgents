@@ -18,7 +18,32 @@ for the per-deploy cut workflow.
 
 ### Changed
 
+- **Pre-run model check gives a slow model one 45-second try** instead of
+  two 15-second tries, checks the quick and deep models at the same
+  time instead of one after the other, and stops after 50 seconds in
+  all cases (a slow server error plus its retry could take ~90). Real runs wait up to 120 seconds
+  per model call, so the old check refused models that were slow but
+  working; a model that cannot answer in 45 seconds is still refused,
+  because a hung model would otherwise hold the single run slot for
+  minutes (the 2026-05-22 hang).
+
 ### Fixed
+
+- **Standard users now see why a run was refused.** When the pre-run
+  model check failed, the New Analysis page stored the error but drew
+  the warning only for admins, and skipped the pop-up message, so a
+  standard user pressed "Start analysis" and nothing happened. The
+  warning now shows for everyone, in plain words for standard users (no
+  model names or config advice they can't act on), and the button shows
+  "Checking that the AI models are answering" while the check runs.
+- **An Ollama Cloud usage limit is reported as a usage limit.** A 429
+  from the model check used to show as "returned 4xx" with a list of
+  other models to try, but the limit covers the whole account. It now
+  reads "usage limit reached", with no alternatives, so the fix (add
+  credits or wait for the reset) is clear. The check no longer retries a
+  429 or counts it against the shared circuit breaker: three refused
+  submits used to open the breaker, and the page then went back to
+  "not responding, try these models".
 
 ### Removed
 

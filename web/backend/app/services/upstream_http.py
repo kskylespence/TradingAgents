@@ -76,6 +76,7 @@ import httpx
 from circuitbreaker import CircuitBreaker
 from tenacity import (
     AsyncRetrying,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     stop_after_delay,
@@ -271,6 +272,9 @@ async def request(
     json_body: dict | None = None,
     max_attempts: int = 3,
     max_total_seconds: float = 25.0,
+    timeout: httpx.Timeout | None = None,
+    retry_read_timeout: bool = True,
+    final_statuses: frozenset[int] = frozenset(),
 ) -> httpx.Response:
     """Issue one upstream request through retry + breaker.
 
@@ -286,6 +290,17 @@ async def request(
             tenacity stops once either ``max_attempts`` OR this is
             reached. Default 25s, leaves ample headroom inside the
             30-second SSE health-poll cadence.
+        timeout: Per-call ``httpx.Timeout`` that replaces the shared
+            client's ``_TIMEOUT`` for this request only.
+        retry_read_timeout: When False, an ``httpx.ReadTimeout`` is not
+            retried. Used by the model probe: it waits once with a long
+            read budget, and a second wait would only double the time
+            the user stares at a spinner.
+        final_statuses: Statuses returned to the caller as-is instead of
+            being retried, so they also never count as a breaker failure.
+            The model probe passes ``{429}``: Ollama Cloud's 429 is the
+            account usage limit, which no retry fixes, and counting it
+            would open the breaker shared with the catalog and health.
 
     Raises:
         circuitbreaker.CircuitBreakerError: when the breaker is open;
@@ -312,15 +327,33 @@ async def request(
                 | stop_after_delay(max_total_seconds)
             ),
             wait=_WAIT_STRATEGY,
-            retry=retry_if_exception_type(TRANSIENT_EXC + (RetryableStatusError,)),
+            retry=(
+                retry_if_exception_type(TRANSIENT_EXC + (RetryableStatusError,))
+                if retry_read_timeout
+                else retry_if_exception(
+                    lambda exc: isinstance(
+                        exc, TRANSIENT_EXC + (RetryableStatusError,)
+                    )
+                    and not isinstance(exc, httpx.ReadTimeout)
+                )
+            ),
             reraise=True,
         ):
             with attempt:
                 attempt_idx += 1
                 try:
-                    resp = await client.request(
-                        method, url, headers=headers, json=json_body
-                    )
+                    if timeout is None:
+                        resp = await client.request(
+                            method, url, headers=headers, json=json_body
+                        )
+                    else:
+                        resp = await client.request(
+                            method,
+                            url,
+                            headers=headers,
+                            json=json_body,
+                            timeout=timeout,
+                        )
                 except TRANSIENT_EXC as exc:
                     log.info(
                         "upstream_http.retry_attempt",
@@ -332,6 +365,8 @@ async def request(
                     )
                     raise
 
+                if resp.status_code in final_statuses:
+                    return resp
                 if _is_retryable_response(resp):
                     delay = _retry_after_seconds(resp)
                     if delay is not None:

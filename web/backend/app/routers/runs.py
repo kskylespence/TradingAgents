@@ -212,15 +212,27 @@ async def _validate_and_probe(body: RunRequest) -> None:
                     else len(wanted)
                 )
             )
-            alternatives = await _suggested_alternatives()
             names = ", ".join(u.model for u in unhealthy)
-            error = RunValidationError(
-                code="upstream_model_unhealthy",
-                message=(
+            limited = [u.model for u in unhealthy if u.status == "rate_limited"]
+            if limited:
+                # The limit is per account, so every other model on it is
+                # limited too: suggesting one would send the user in a loop.
+                alternatives: list[str] = []
+                message = (
+                    "The Ollama Cloud account has reached its usage limit, so "
+                    f"{', '.join(limited)} cannot answer. Add usage credits on ollama.com "
+                    "or wait for the limit to reset."
+                )
+            else:
+                alternatives = await _suggested_alternatives()
+                message = (
                     f"Selected model(s) {names} are not responding on Ollama "
                     "Cloud. Pick a known-good alternative below or wait for "
                     "the upstream to recover."
-                ),
+                )
+            error = RunValidationError(
+                code="upstream_model_unhealthy",
+                message=message,
                 unhealthy_models=unhealthy,
                 suggested_alternatives=alternatives,
             )

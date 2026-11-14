@@ -403,6 +403,7 @@ export interface UnhealthyModel {
     | "timeout"
     | "http_5xx"
     | "http_4xx"
+    | "rate_limited"
     | "degraded_empty_response";
   upstream_ref: string | null;
 }
