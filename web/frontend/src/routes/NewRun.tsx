@@ -469,6 +469,10 @@ export default function NewRun() {
                   id="analysis_date"
                   name="analysis_date"
                   type="date"
+                  // iOS gives date inputs their own minimum width, and a
+                  // flex-display input ignores w-full, so it ran past the
+                  // card on phones.
+                  className="block min-w-0 appearance-none"
                   required
                   max={todayStr}
                   value={analysisDate}

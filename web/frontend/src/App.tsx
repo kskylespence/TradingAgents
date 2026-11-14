@@ -39,16 +39,16 @@ function NavBar() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-emerald-900/40 bg-[hsl(var(--terminal-bg))]/95 backdrop-blur-sm">
-      <div className="container flex h-14 items-center gap-6">
-        <div className="flex flex-col leading-none">
-          <div className="font-semibold tracking-tight text-emerald-400">
+      <div className="container flex h-14 items-center gap-3 sm:gap-6">
+        <div className="flex min-w-0 shrink flex-col leading-none">
+          <div className="truncate font-semibold tracking-tight text-emerald-400">
             HedgeFund Terminal
           </div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          <div className="hidden text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:block">
             Multi-agent analysis
           </div>
         </div>
-        <nav className="flex items-center gap-4">
+        <nav className="flex shrink-0 items-center gap-3 sm:gap-4">
           <NavLink to="/new" className={linkCls}>
             New
           </NavLink>
@@ -61,8 +61,9 @@ function NavBar() {
             </NavLink>
           ) : null}
         </nav>
-        <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
-          <span className="font-mono text-xs uppercase tracking-wide">
+        <div className="ml-auto flex shrink-0 items-center gap-1 text-sm text-muted-foreground sm:gap-3">
+          {/* The name is hidden on phones so "Sign out" stays on screen. */}
+          <span className="hidden font-mono text-xs uppercase tracking-wide sm:inline">
             {user.username}
           </span>
           <Button

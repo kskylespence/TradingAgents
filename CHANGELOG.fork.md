@@ -34,6 +34,14 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **New Analysis page fits a phone screen.** "Sign out" was cut off at
+  the right edge and the date box ran past the card: the header sat in
+  one row with fixed gaps, the page kept 32px side padding at every
+  width, and iOS gives date inputs a minimum width of their own. On
+  phones the header now drops the tagline and the user name and uses
+  smaller gaps, the side padding is 16px, and the date box shrinks to
+  its card. A Playwright test checks a 390px-wide screen.
+
 - **Standard users now see why a run was refused.** When the pre-run
   model check failed, the New Analysis page stored the error but drew
   the warning only for admins, and skipped the pop-up message, so a
