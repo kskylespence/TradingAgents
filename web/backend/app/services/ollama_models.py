@@ -102,21 +102,31 @@ ProbeOutcome = Literal[
 # retry could run twice as long.
 _PROBE_HARD_CAP_SLACK_SECONDS = 5.0
 
+# Most a probe waits for one model, whatever the run would wait. The site
+# sits behind Cloudflare, which drops a request whose response takes over
+# 100s (error 524): the user would see a proxy error instead of the
+# refusal, and the run could still start behind it. 85s plus the 5s slack
+# keeps the whole check at 90s. Quick and deep probe at the same time.
+_PROBE_MAX_WAIT_SECONDS = 85.0
+
 
 def _probe_read_timeout_seconds(model_id: str) -> float:
-    """The run's own read timeout for ``model_id`` (env > capability > 120s).
+    """The run's own read timeout for ``model_id``, capped at 85s.
 
-    The probe must never be stricter than the run it guards. Fixed 2 x 15s
-    and then 45s tries refused glm-5.3-flash for a standard user on
-    2026-11-14, when both models took ~72s to answer and the run waits
-    120s. A model that sends nothing for this long would fail the run too,
-    so it is still refused and cannot pin the single run slot.
+    The run's rule is env > capability > 120s. The cap is
+    ``_PROBE_MAX_WAIT_SECONDS`` (Cloudflare's 100s response limit).
+
+    Below the cap the probe is never stricter than the run it guards.
+    Fixed 2 x 15s and then 45s tries refused glm-5.3-flash for a standard
+    user on 2026-11-14, when both models took ~72s to answer and the run
+    waits 120s. A model that sends nothing for this long is refused, so a
+    hung one cannot pin the single run slot.
     """
     from tradingagents.llm_clients.capabilities import (
         resolve_read_timeout_seconds,
     )
 
-    return resolve_read_timeout_seconds(model_id)
+    return min(resolve_read_timeout_seconds(model_id), _PROBE_MAX_WAIT_SECONDS)
 
 
 class ProbeResult(dict):

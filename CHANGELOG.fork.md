@@ -20,6 +20,15 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+- **Pre-run model check answers before the proxy gives up.** The site
+  sits behind Cloudflare, which drops a request whose response takes
+  over 100 seconds (error 524). Since 0.7.1+hf.3 the check could wait up
+  to 125 seconds, so on a slow day a user could see a Cloudflare error
+  instead of a clear refusal, and the run could still start behind it.
+  The check now waits at most 85 seconds per model (90 in all); runs
+  still wait their full timeout. The hint under the Start button now
+  says "up to a minute and a half".
+
 ### Removed
 
 ### Security

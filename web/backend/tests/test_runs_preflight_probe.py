@@ -270,13 +270,13 @@ def test_probe_timeout_returns_400(runs_client, monkeypatch) -> None:
 def test_probe_timeout_is_one_long_try_not_two_short_ones(
     runs_client, monkeypatch
 ) -> None:
-    """A model gets ONE probe try, waiting as long as the run would.
+    """A model gets ONE probe try, waiting as long as the run would (max 85s).
 
     Two 15s tries refused glm-5.3-flash for a standard user on
     2026-11-14. A 45s try was still too short: that day both models took
     ~72s to answer "ping", while the run path waits 120s per call. The
-    probe now uses the run's own read timeout, so it never refuses a
-    model the run would accept; a hung one is still refused (see
+    probe now uses the run's own read timeout, capped at 85s so the
+    check answers before Cloudflare's 100s limit; a hung one is still refused (see
     test_probe_timeout_returns_400) so it cannot pin the single run slot.
     """
     client, _calls = runs_client
@@ -296,10 +296,37 @@ def test_probe_timeout_is_one_long_try_not_two_short_ones(
     assert len(glm_calls) == 1, f"timeout must not be retried, got {len(glm_calls)}"
     from tradingagents.llm_clients.capabilities import resolve_read_timeout_seconds
 
-    assert glm_calls[0]["timeout"]["read"] == 120.0, glm_calls[0]["timeout"]
+    # The run would wait 120s; the probe stops at the 85s proxy cap.
+    assert glm_calls[0]["timeout"]["read"] == 85.0, glm_calls[0]["timeout"]
     for call in record["probe_calls"]:
-        expected = resolve_read_timeout_seconds(call["model"])
+        expected = min(resolve_read_timeout_seconds(call["model"]), 85.0)
         assert call["timeout"]["read"] == expected, call
+
+
+def test_probe_stays_under_the_proxy_response_limit(
+    runs_client, monkeypatch
+) -> None:
+    """The whole check must answer before Cloudflare gives up at 100s.
+
+    Production sits behind Cloudflare, which drops a request whose
+    response takes over 100s (error 524). The user then sees a proxy
+    error instead of the refusal, and the run may still start behind it.
+    So the probe waits at most 85s per model, even when the run would
+    wait longer (300s reasoning models, or a raised env override).
+    """
+    client, _calls = runs_client
+    monkeypatch.setenv("TRADINGAGENTS_LLM_READ_TIMEOUT", "300")
+    record = _install_probe_fake(
+        monkeypatch,
+        responses={"glm-5": None, "kimi-k2.6": None},
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    _post(client, _build_body())
+
+    assert record["probe_calls"], "probe never ran"
+    for call in record["probe_calls"]:
+        assert call["timeout"]["read"] == 85.0, call["timeout"]
 
 
 def test_probe_waits_as_long_as_the_run_for_that_model(
