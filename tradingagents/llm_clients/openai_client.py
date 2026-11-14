@@ -16,7 +16,7 @@ from langchain_openai import ChatOpenAI
 
 from .api_key_env import get_api_key_env
 from .base_client import BaseLLMClient, normalize_content
-from .capabilities import get_capabilities
+from .capabilities import get_capabilities, resolve_read_timeout_seconds
 from .validators import validate_model
 
 logger = logging.getLogger(__name__)
@@ -584,19 +584,15 @@ class OpenAIClient(BaseLLMClient):
 
         # Default timeout: httpx's default is 10 minutes, which lets a hung
         # upstream pin the single-concurrent-run lock for the full window.
-        # Precedence: env TRADINGAGENTS_LLM_READ_TIMEOUT > per-model
+        # capabilities.resolve_read_timeout_seconds sets the order:
+        # env TRADINGAGENTS_LLM_READ_TIMEOUT > per-model
         # capability ``read_timeout_seconds`` > 120s baseline. The env wins
         # because operators set it deliberately deploy-wide; the capability
         # row lets reasoning models (kimi-k2-thinking, gpt-oss, ...) avoid
         # the 120s default that pinned a real run for 37 minutes on
         # 2026-05-22. Connect/write/pool stay tight at 10s either way.
         if "timeout" not in llm_kwargs:
-            env_read = os.environ.get("TRADINGAGENTS_LLM_READ_TIMEOUT")
-            if env_read is not None:
-                read_s = float(env_read)
-            else:
-                cap_read = get_capabilities(self.model).read_timeout_seconds
-                read_s = float(cap_read) if cap_read is not None else 120.0
+            read_s = resolve_read_timeout_seconds(self.model)
             llm_kwargs["timeout"] = httpx.Timeout(
                 connect=10.0, read=read_s, write=10.0, pool=10.0,
             )

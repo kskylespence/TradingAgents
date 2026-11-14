@@ -14,6 +14,7 @@ as declarative per-model fields).
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -190,3 +191,23 @@ def get_capabilities(model_name: str) -> ModelCapabilities:
         if pattern.match(model_name):
             return caps
     return _DEFAULT
+
+
+# Read timeout when nothing else sets one. Kept low so a hung upstream
+# cannot pin the single-concurrent-run lock (httpx's own default is 10 min).
+DEFAULT_READ_TIMEOUT_SECONDS = 120.0
+
+
+def resolve_read_timeout_seconds(model_name: str) -> float:
+    """How long a run waits for ``model_name`` to send a byte, in seconds.
+
+    Precedence: env ``TRADINGAGENTS_LLM_READ_TIMEOUT`` > the model's
+    ``read_timeout_seconds`` row > 120s. The env wins because operators set
+    it deliberately deploy-wide. The web pre-run check uses this same value,
+    so it never refuses a model the run itself would have waited for.
+    """
+    env_read = os.environ.get("TRADINGAGENTS_LLM_READ_TIMEOUT")
+    if env_read is not None:
+        return float(env_read)
+    cap_read = get_capabilities(model_name).read_timeout_seconds
+    return float(cap_read) if cap_read is not None else DEFAULT_READ_TIMEOUT_SECONDS

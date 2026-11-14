@@ -749,8 +749,8 @@ export default function NewRun() {
             <FormMessage>{validationError}</FormMessage>
             {isSubmitting ? (
               <p role="status" className="text-sm text-muted-foreground">
-                Checking that the AI models are answering. This can take up
-                to a minute.
+                Checking that the AI models are answering. This can take a
+                couple of minutes.
               </p>
             ) : null}
           </CardContent>

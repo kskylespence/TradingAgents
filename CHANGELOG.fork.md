@@ -18,14 +18,19 @@ for the per-deploy cut workflow.
 
 ### Changed
 
-- **Pre-run model check gives a slow model one 45-second try** instead of
-  two 15-second tries, checks the quick and deep models at the same
-  time instead of one after the other, and stops after 50 seconds in
-  all cases (a slow server error plus its retry could take ~90). Real runs wait up to 120 seconds
-  per model call, so the old check refused models that were slow but
-  working; a model that cannot answer in 45 seconds is still refused,
-  because a hung model would otherwise hold the single run slot for
-  minutes (the 2026-05-22 hang).
+- **Pre-run model check waits as long as the run would** instead of
+  giving each model two 15-second tries. It now uses the run's own read
+  timeout for that model (120 seconds by default, longer for the slow
+  reasoning models in the model table, and the
+  `TRADINGAGENTS_LLM_READ_TIMEOUT` override applies to both), checks the
+  quick and deep models at the same time, and stops 5 seconds after
+  that timeout in all cases (a slow server error plus its retry could
+  otherwise take twice as long). The old check refused models that were
+  slow but working: on 2026-11-14 both default models took about 72
+  seconds to answer, which a run accepts. A model that sends nothing for
+  the full timeout is still refused, because it would fail the run too
+  and a hung model would otherwise hold the single run slot for minutes
+  (the 2026-05-22 hang).
 
 ### Fixed
 

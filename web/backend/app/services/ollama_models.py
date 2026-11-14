@@ -96,18 +96,27 @@ ProbeOutcome = Literal[
     "degraded_empty_response",
 ]
 
-# One probe try gets this long to answer. The run path waits up to 120s
-# per call, so the old 2 x 15s tries refused models that were slow but
-# alive (a standard user was blocked this way on 2026-11-14). 45s still
-# refuses a hung model, which would otherwise pin the single run slot.
-_PROBE_READ_TIMEOUT_SECONDS = 45.0
-_PROBE_TIMEOUT = httpx.Timeout(
-    connect=10.0, read=_PROBE_READ_TIMEOUT_SECONDS, write=10.0, pool=10.0
-)
-# Wall-clock cap on the whole probe, retries and Retry-After sleeps
-# included. Tenacity checks its own time budget only BETWEEN tries, so
-# without this a slow 5xx plus its retry could run ~90s.
-_PROBE_HARD_CAP_SECONDS = _PROBE_READ_TIMEOUT_SECONDS + 5.0
+# Extra wall-clock time past the read timeout before the whole probe,
+# retries and Retry-After sleeps included, is cut off. Tenacity checks its
+# own time budget only BETWEEN tries, so without a cap a slow 5xx plus its
+# retry could run twice as long.
+_PROBE_HARD_CAP_SLACK_SECONDS = 5.0
+
+
+def _probe_read_timeout_seconds(model_id: str) -> float:
+    """The run's own read timeout for ``model_id`` (env > capability > 120s).
+
+    The probe must never be stricter than the run it guards. Fixed 2 x 15s
+    and then 45s tries refused glm-5.3-flash for a standard user on
+    2026-11-14, when both models took ~72s to answer and the run waits
+    120s. A model that sends nothing for this long would fail the run too,
+    so it is still refused and cannot pin the single run slot.
+    """
+    from tradingagents.llm_clients.capabilities import (
+        resolve_read_timeout_seconds,
+    )
+
+    return resolve_read_timeout_seconds(model_id)
 
 
 class ProbeResult(dict):
@@ -693,6 +702,8 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
         headers = {"Content-Type": "application/json", **_build_auth_headers()}
         url = base_url.rstrip("/") + "/chat/completions"
         body = _probe_payload(model_id)
+        read_s = _probe_read_timeout_seconds(model_id)
+        hard_cap = read_s + _PROBE_HARD_CAP_SLACK_SECONDS
 
         outcome: ProbeOutcome
         upstream_ref: str | None = None
@@ -706,14 +717,16 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
                     json_body=body,
                     # One retry for a fast 5xx flap. A read timeout is NOT
                     # retried (the single try already waits
-                    # _PROBE_TIMEOUT.read) and a 429 comes straight back.
+                    # the run's full read timeout) and a 429 comes straight back.
                     max_attempts=2,
-                    max_total_seconds=_PROBE_HARD_CAP_SECONDS,
-                    timeout=_PROBE_TIMEOUT,
+                    max_total_seconds=hard_cap,
+                    timeout=httpx.Timeout(
+                        connect=10.0, read=read_s, write=10.0, pool=10.0
+                    ),
                     retry_read_timeout=False,
                     final_statuses=frozenset({429}),
                 ),
-                timeout=_PROBE_HARD_CAP_SECONDS,
+                timeout=hard_cap,
             )
             status_code = resp.status_code
             try:
@@ -769,7 +782,7 @@ async def probe_model_liveness(model_id: str) -> ProbeResult:
             )
             outcome = "timeout"
         except (httpx.TimeoutException, httpx.ReadTimeout, TimeoutError):
-            # TimeoutError is the _PROBE_HARD_CAP_SECONDS wall-clock cap.
+            # TimeoutError is the hard_cap wall-clock cap.
             outcome = "timeout"
         except Exception as exc:  # noqa: BLE001 — never raise
             # Treat unrecognised transport errors as timeouts for UX

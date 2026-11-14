@@ -3,7 +3,7 @@
 A real run on 2026-05-22 hung for 56 minutes because ``POST /api/runs``
 enqueued the engine on a model (``kimi-k2-thinking``) that was
 unresponsive on Ollama Cloud — no defense checked model liveness before
-launching. This layer adds a synchronous pre-flight probe (one try, 45s read)
+launching. This layer adds a synchronous pre-flight probe (one try, the run's read timeout)
 that pings each selected model and returns a structured 400 with healthy
 alternatives when a model is dead.
 
@@ -18,7 +18,7 @@ The probe contract:
   to give the model budget to emit a non-empty response. Non-reasoning
   models get ``max_completion_tokens=1`` for the cheapest possible
   probe.
-* One try per model with a 45s read budget (``_PROBE_TIMEOUT``); a read
+* One try per model with the run's own read timeout; a read
   timeout is not retried. Quick and deep probe at the same time.
 * A 429 (Ollama Cloud's account usage limit) reports ``rate_limited``.
 * Caches healthy results for 60s and unhealthy results for 30s (keyed
@@ -270,13 +270,14 @@ def test_probe_timeout_returns_400(runs_client, monkeypatch) -> None:
 def test_probe_timeout_is_one_long_try_not_two_short_ones(
     runs_client, monkeypatch
 ) -> None:
-    """A model gets ONE probe try with a 45s read budget, not 2 x 15s.
+    """A model gets ONE probe try, waiting as long as the run would.
 
     Two 15s tries refused glm-5.3-flash for a standard user on
-    2026-11-14 while the run path itself waits up to 120s per call. A
-    single long try lets an alive-but-slow model through; a hung one is
-    still refused (see test_probe_timeout_returns_400) so it cannot pin
-    the single run slot.
+    2026-11-14. A 45s try was still too short: that day both models took
+    ~72s to answer "ping", while the run path waits 120s per call. The
+    probe now uses the run's own read timeout, so it never refuses a
+    model the run would accept; a hung one is still refused (see
+    test_probe_timeout_returns_400) so it cannot pin the single run slot.
     """
     client, _calls = runs_client
     record = _install_probe_fake(
@@ -293,8 +294,36 @@ def test_probe_timeout_is_one_long_try_not_two_short_ones(
     assert resp.status_code == 400, resp.text
     glm_calls = [c for c in record["probe_calls"] if c["model"] == "glm-5"]
     assert len(glm_calls) == 1, f"timeout must not be retried, got {len(glm_calls)}"
+    from tradingagents.llm_clients.capabilities import resolve_read_timeout_seconds
+
+    assert glm_calls[0]["timeout"]["read"] == 120.0, glm_calls[0]["timeout"]
     for call in record["probe_calls"]:
-        assert call["timeout"]["read"] == 45.0, call["timeout"]
+        expected = resolve_read_timeout_seconds(call["model"])
+        assert call["timeout"]["read"] == expected, call
+
+
+def test_probe_waits_as_long_as_the_run_for_that_model(
+    runs_client, monkeypatch
+) -> None:
+    """The probe reads the same per-model timeout the run uses.
+
+    The env override wins for both, so an operator who raises it for a
+    slow day raises the check too.
+    """
+    client, _calls = runs_client
+    monkeypatch.setenv("TRADINGAGENTS_LLM_READ_TIMEOUT", "77")
+    record = _install_probe_fake(
+        monkeypatch,
+        responses={"glm-5": None, "kimi-k2.6": None},
+        models_listing=["glm-5", "kimi-k2.6"],
+    )
+
+    resp = _post(client, _build_body())
+
+    assert resp.status_code != 400, resp.text
+    assert record["probe_calls"], "probe never ran"
+    for call in record["probe_calls"]:
+        assert call["timeout"]["read"] == 77.0, call["timeout"]
 
 
 def test_probe_429_usage_limit_reports_rate_limited(runs_client, monkeypatch) -> None:
@@ -394,8 +423,9 @@ def test_probe_has_a_hard_wall_clock_cap(runs_client, monkeypatch) -> None:
 
     Tenacity only checks its time budget between tries, so a slow 5xx
     followed by a retry could run ~90s while the UI says "up to a
-    minute". Scaled down here: cap 0.3s, each try answers 503 after
-    0.25s, so without a hard cap the retry runs past 0.5s.
+    minute". Scaled down here: read timeout 0.25s + 0.05s slack = a 0.3s
+    cap, each try answers 503 after 0.25s, so without a hard cap the
+    retry runs past 0.5s.
     """
     import asyncio
     import time
@@ -416,7 +446,8 @@ def test_probe_has_a_hard_wall_clock_cap(runs_client, monkeypatch) -> None:
     upstream_http._client = httpx.AsyncClient(
         transport=httpx.MockTransport(_handler), timeout=httpx.Timeout(5.0)
     )
-    monkeypatch.setattr(ollama_models, "_PROBE_HARD_CAP_SECONDS", 0.3)
+    monkeypatch.setenv("TRADINGAGENTS_LLM_READ_TIMEOUT", "0.25")
+    monkeypatch.setattr(ollama_models, "_PROBE_HARD_CAP_SLACK_SECONDS", 0.05)
 
     started = time.monotonic()
     resp = _post(client, _build_body(quick_think_llm="glm-5", deep_think_llm="glm-5"))

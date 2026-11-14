@@ -135,3 +135,34 @@ class TestPatternMatchPicksUpReasoningModels:
         # read timeout via the forward-compat pattern.
         caps = get_capabilities("brand-new-reasoner:thinking")
         assert caps.read_timeout_seconds == 300
+
+
+@pytest.mark.unit
+class TestResolveReadTimeoutSeconds:
+    """One resolver for the run's read timeout, shared with the web pre-run check.
+
+    The web check used its own 45s figure while runs waited 120s, so it refused
+    models the run would have accepted (a standard user, 2026-11-14).
+    """
+
+    def test_default_is_120(self):
+        from tradingagents.llm_clients.capabilities import resolve_read_timeout_seconds
+
+        assert resolve_read_timeout_seconds("glm-5.3") == 120.0
+
+    def test_capability_row_wins_over_default(self):
+        from tradingagents.llm_clients.capabilities import resolve_read_timeout_seconds
+
+        assert resolve_read_timeout_seconds("kimi-k2-thinking") == 300.0
+
+    def test_env_wins_over_everything(self, monkeypatch):
+        from tradingagents.llm_clients.capabilities import resolve_read_timeout_seconds
+
+        monkeypatch.setenv("TRADINGAGENTS_LLM_READ_TIMEOUT", "77")
+        assert resolve_read_timeout_seconds("kimi-k2-thinking") == 77.0
+
+    def test_run_client_uses_the_resolver(self, monkeypatch):
+        mod = _client_module()
+        monkeypatch.setattr(mod, "resolve_read_timeout_seconds", lambda _m: 61.0)
+        llm = _build("glm-5.3")
+        assert llm.request_timeout.read == 61.0
