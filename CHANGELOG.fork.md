@@ -20,6 +20,14 @@ for the per-deploy cut workflow.
 
 ### Fixed
 
+### Removed
+
+### Security
+
+## [0.7.1+hf.4] — 2026-11-14
+
+### Fixed
+
 - **Pre-run model check answers before the proxy gives up.** The site
   sits behind Cloudflare, which drops a request whose response takes
   over 100 seconds (error 524). Since 0.7.1+hf.3 the check could wait up
@@ -28,10 +36,6 @@ for the per-deploy cut workflow.
   The check now waits at most 85 seconds per model (90 in all); runs
   still wait their full timeout. The hint under the Start button now
   says "up to a minute and a half".
-
-### Removed
-
-### Security
 
 ## [0.7.1+hf.3] — 2026-11-14
 
@@ -1276,7 +1280,8 @@ handful of upstream-PR backports that hadn't yet shipped in upstream
   Dockerfile ordering is fixed and the auto-discovery loader tolerates
   partial imports during boot.
 
-[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.3...HEAD
+[Unreleased]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.4...HEAD
+[0.7.1+hf.4]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.3...v0.7.1-hf.4
 [0.7.1+hf.3]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.2...v0.7.1-hf.3
 [0.7.1+hf.2]: https://github.com/kskylespence/TradingAgents/compare/v0.7.1-hf.1...v0.7.1-hf.2
 [0.7.1+hf.1]: https://github.com/kskylespence/TradingAgents/compare/v0.6.0-hf.1...v0.7.1-hf.1
